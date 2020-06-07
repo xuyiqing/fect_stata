@@ -1,0 +1,18 @@
+v 3
+
+d fect. A Practical Guide to Counterfactual Estimators for Causal Inference with Time-Series Cross-Sectional Data
+d
+d Author: Licheng Liu, Ye Wang, Yiqing Xu
+d Support: yiqingxu@ucsd.edu
+d
+d
+d Requires: Stata version 14
+d
+d Distribution-Date: 20200601
+d
+
+f fect.ado
+
+
+
+e
