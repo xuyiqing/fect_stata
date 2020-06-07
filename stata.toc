@@ -1,0 +1,11 @@
+v 3
+d fect, a STATA program
+
+p fect A Practical Guide to Counterfactual Estimators for Causal Inference with Time-Series Cross-Sectional Data
+
+* l word-to-show path-or-url [description]
+* t: Directories within site:
+* t path [description]
+* Packages:
+* p pkgname [description]
+
