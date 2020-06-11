@@ -27,8 +27,8 @@ syntax varlist(min=1 max=1) [if], Treat(varlist min=1 max=1) ///
 								  vartype(string) ///
 								  nboots(integer 200) ///
 								  tol(real 1e-5) ///
-								  maxiterations(integer 5000) ///
-								  seed(integer 131210) ///
+								  maxiterations(integer 2000) ///
+								  seed(integer 100) ///
 								  minT0(integer 5) ///
 								  maxmissing(integer 0) ///
 								  preperiod(integer -999999) ///
@@ -98,8 +98,8 @@ if("`lambda'"!="") {
 		local smp=`smp'+1
 	}
 	if(`smp'==1 & "`cv'"!=""){
-		dis as err "lambda() should have at least 2 values when cv is on."
-		exit
+		//dis as err "lambda() should have at least 2 values when cv is on."
+		//exit
 	}
 }
 
@@ -1034,8 +1034,8 @@ if( `do_cv'==1){
 	ereturn matrix CV=`CV'
 }
 //ATT
-ereturn scalar ATT=`ATT'
-ereturn scalar n=`N_alltreat'
+//ereturn scalar ATT=`ATT'
+//ereturn scalar n=`N_alltreat'
 
 if("`se'"==""){
 	preserve
@@ -1047,21 +1047,40 @@ if("`se'"==""){
 	qui mkmat s n ATT, matrix(`ATTs_matrix')
 	ereturn matrix ATTs=`ATTs_matrix'
 	if("`cov'"!=""){
-		ereturn matrix coefs=`coef_output'
+		tempname coef_final_output
+		matrix `coef_final_output'=(`cons_output')
+		matrix `coef_final_output'=(`coef_final_output',`coef_output')
+		matrix colnames `coef_final_output'=cons `cov'
+		ereturn matrix coefs=`coef_final_output'
 	}
-	ereturn scalar mu=`cons_output'
+	if("`cov'"==""){
+		tempname coef_final_output
+		matrix `coef_final_output'=(`cons_output')
+		matrix colnames `coef_final_output'=cons
+		ereturn matrix coefs=`coef_final_output'
+	}
+
+	tempname ATT_final_output
+	matrix `ATT_final_output'=(`ATT',`N_alltreat')
+	matrix colnames `ATT_final_output'=ATT N
+	ereturn matrix ATT=`ATT_final_output'	
 
 	restore
 }
 
 //ATTsd
 if("`se'"!="" & "`placeboTest'"==""){
-	ereturn scalar ATTsd=`ATTsd'
-	ereturn matrix ATTCI=`ci_att'
+	//ereturn scalar ATTsd=`ATTsd'
+	//ereturn matrix ATTCI=`ci_att'
 
-	ereturn scalar ATT_Lower_Bound=`ATT_Lower_Bound'
-	ereturn scalar ATT_Upper_Bound=`ATT_Upper_Bound'
-	ereturn scalar ATT_pvalue=round(2*(1-normal(abs(`ATT'/`ATTsd'))),0.001)
+	//ereturn scalar ATT_Lower_Bound=`ATT_Lower_Bound'
+	//ereturn scalar ATT_Upper_Bound=`ATT_Upper_Bound'
+	local ATT_pvalue=round(2*(1-normal(abs(`ATT'/`ATTsd'))),0.001)
+
+	tempname ATT_final_output
+	matrix `ATT_final_output'=(`ATT',`N_alltreat',`ATTsd',`ATT_Lower_Bound',`ATT_Upper_Bound',`ATT_pvalue')
+	matrix colnames `ATT_final_output'=ATT N sd Lower_Bound Upper_Bound pvalue
+	ereturn matrix ATT=`ATT_final_output'
 }
 
 //ATTs & coef
@@ -1102,9 +1121,15 @@ if("`wald'"!=""){
 //Placebo
 if("`placeboTest'"!=""){
 	ereturn scalar placebo_pvalue=`placebo_pvalue'
-	ereturn scalar placebo_ATT=`placebo_ATT_mean'
-	ereturn scalar placebo_ATT_sd=`placebo_ATT_sd'
-	ereturn matrix placebo_ATT_CI=`placebo_CI'
+	//ereturn scalar placebo_ATT=`placebo_ATT_mean'
+	//ereturn scalar placebo_ATT_sd=`placebo_ATT_sd'
+	//ereturn matrix placebo_ATT_CI=`placebo_CI'
+
+	tempname placebo_ATT_final_output
+	matrix `placebo_ATT_final_output'=(`placebo_ATT_mean',`placebo_ATT_sd',`placebo_CI'[1,1],`placebo_CI'[1,2],`placebo_pvalue')
+	matrix colnames `placebo_ATT_final_output'=placebo_ATT sd Lower_Bound Upper_Bound pvalue
+	ereturn matrix placebo_ATT=`placebo_ATT_final_output'
+
 }
 
 //counterfactual
