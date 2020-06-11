@@ -1,6 +1,11 @@
+cap program drop fect
+cap program drop cross_validation
+cap program drop fect_counter
+cap program drop placebo_Test
+cap program drop permutation
 
 program define fect,eclass
-version 14
+version 15
 
 syntax varlist(min=1 max=1) [if], Treat(varlist min=1 max=1) ///
 								  Unit(varlist min=1 max=1) ///
@@ -23,7 +28,7 @@ syntax varlist(min=1 max=1) [if], Treat(varlist min=1 max=1) ///
 								  nboots(integer 200) ///
 								  tol(real 1e-5) ///
 								  maxiterations(integer 5000) ///
-								  seed(integer 12345678) ///
+								  seed(integer 131210) ///
 								  minT0(integer 5) ///
 								  maxmissing(integer 0) ///
 								  preperiod(integer -999999) ///
@@ -37,9 +42,18 @@ syntax varlist(min=1 max=1) [if], Treat(varlist min=1 max=1) ///
 								  YLABel(string) ///
 								  XLABel(string) ///
 								  SAVing(string) ///
+								  counterfactual ///
 								]
 
 set trace off
+
+/*reghdfe*/
+cap which reghdfe.ado
+if _rc {
+	di as error "reghdfe.ado required: {stata ssc install reghdfe,replace}"
+	exit 111
+}
+
 
 /* treat */
 qui sum `treat'
@@ -75,11 +89,17 @@ if(`r'<1) {
 
 /* lambda */
 if("`lambda'"!="") {
+	local smp = 0
 	foreach lambda_grid in `lambda' {
 		if(`lambda_grid'<=0){
 				dis as err "lambda() invalid; elements in lambda must be positive."
 				exit
 		}
+		local smp=`smp'+1
+	}
+	if(`smp'==1 & "`cv'"!=""){
+		dis as err "lambda() should have at least 2 values when cv is on."
+		exit
 	}
 }
 
@@ -178,8 +198,13 @@ if(`placeboperiod'<1) {
 /* saving */
 if (strpos("`saving'",".") == 0) {
     local saving = "`saving'.png"
-}   
+}  
 
+/* EquiTest/PlaceboTest */
+if("`se'"==""){
+	local equiTest=""
+	local placeboTest=""
+}
 
 ************************************Input Check End
 
@@ -225,6 +250,10 @@ qui gen `missingy'=`TT'-`notmissingy'
 qui replace `touse'=0 if `missingy'>`maxmissing'
 }
 qui drop if `touse'==0
+
+if(r(N_drop)!=.){
+	di as res "Some treated units has too few pre-treatment periods; they are removed automatically."
+}
 /* Threshold of touse END*/
 
 /* Cross-Validation */
@@ -298,6 +327,34 @@ if `judge_converge'==0{
     exit
 }
 
+//coef
+tempname coef_output
+if("`cov'"!=""){
+	mat `coef_output' = e(coef)
+	local colnum=colsof(`coef_output')
+}
+local cons_output = e(cons)
+
+
+if("`counterfactual'"!=""){
+	tempfile counter_out
+
+	cap gen time_relative_to_treatment=`S'
+	if _rc!=0 {
+		cap replace time_relative_to_treatment=`S'
+	}
+	cap gen counterfactual_of_response=`counter'
+	if _rc!=0 {
+		cap replace counterfactual_of_response=`counter'
+	}
+	qui save `counter_out',replace
+
+	qui drop time_relative_to_treatment
+	qui drop counterfactual_of_response
+	sort `newid' `newtime'
+
+}
+
 qui sum `S'
 local min_s=r(min)
 local max_s=r(max)
@@ -360,10 +417,11 @@ local permutation_pvalue=e(permutation_pvalue)
 
 /* Bootstrap/Jackknife */
 if("`se'"!="" & "`placeboTest'"==""){ 
-	tempname sim sim2
-	tempfile results results2
+	tempname sim sim2 sim3
+	tempfile results results2 results3
 	qui postfile `sim' ATT using `results',replace
 	qui postfile `sim2' s ATTs using `results2',replace
+	qui postfile `sim3' coef index using `results3',replace
 	
 	if("`vartype'"=="bootstrap"){
 		di as txt "{hline}"	
@@ -384,12 +442,24 @@ if("`se'"!="" & "`placeboTest'"==""){
 				continue
 			}
 			
+			/* coefs */
+			local cons_output_boot = e(cons)
+			post `sim3' (`cons_output_boot') (0)
+			tempname coef_output_boot
+			if("`cov'"!=""){
+				mat `coef_output_boot' = e(coef)
+				local colnum=colsof(`coef_output_boot')
+				forval ii=1/`colnum'{
+					post `sim3' (`coef_output_boot'[1,`ii']) (`ii')
+				}
+			}
+			
 			/* ATT */
 			qui sum `TE' if `treat'==1 & `touse'==1
 			if r(mean)!=.{
 				post `sim' (r(mean))
 			}
-			
+
 			/* ATTs */
 			forvalue si=`min_s'/`max_s' {
 				qui sum `ATTs' if `S'==`si' & `touse'==1
@@ -405,10 +475,11 @@ if("`se'"!="" & "`placeboTest'"==""){
 		}
 		postclose `sim'
 		postclose `sim2'
+		postclose `sim3'
 	}
 	
 	if("`vartype'"=="jackknife"){
-		//di as txt "{hline}"	
+		di as txt "{hline}"	
 		di as txt "Jackknifing..."
 		tempvar order order_mean order_rank
 		bys `newid': gen `order'=runiform()
@@ -430,6 +501,19 @@ if("`se'"!="" & "`placeboTest'"==""){
 				restore
 				continue
 			}
+
+			/* coefs */
+			local cons_output_jack = e(cons)
+			post `sim3' (`cons_output_jack') (0)
+			tempname coef_output_jack
+			if("`cov'"!=""){
+				mat `coef_output_jack' = e(coef)
+				local colnum=colsof(`coef_output_jack')
+				forval ii=1/`colnum'{
+					post `sim3' (`coef_output_jack'[1,`ii']) (`ii')
+				}
+			}
+			
 			
 			/* ATT */
 			qui sum `TE' if `treat'==1 & `touse'==1
@@ -449,6 +533,7 @@ if("`se'"!="" & "`placeboTest'"==""){
 		}
 		postclose `sim'
 		postclose `sim2'
+		postclose `sim3'
 	}
 	
 	
@@ -466,19 +551,17 @@ if("`se'"!="" & "`placeboTest'"==""){
 		local twoside=100-`alpha'*100
 	
 		qui _pctile ATT,p(`twosidel' ,`twosideu')
+		local ATT_Lower_Bound=r(r1)
+		local ATT_Upper_Bound=r(r2)
 		matrix `ci_att'=(r(r1),r(r2)) //to save
 		matrix rownames `ci_att' = "Confidence Interval" 
 		matrix colnames `ci_att' = "Lower Bound" "Upper Bound"
 	
-
 		//ATTs
 		tempname sim_plot
 		tempfile results_plot
 		qui postfile `sim_plot' s atts attsd att_lb att_ub s_N using `results_plot',replace
-	
 		qui use `results2',clear
-		
-		
 		forvalue s=`min_s'/`max_s' {
 			qui sum ATTs if s==`s'
 			if r(N)<1 {
@@ -492,8 +575,33 @@ if("`se'"!="" & "`placeboTest'"==""){
 				post `sim_plot' (`s') (`att`s_index'') (`attsd_temp') (`ci'[1,1]) (`ci'[1,2]) (`N`s_index'')
 			}
 		}
-		
 		postclose `sim_plot'
+
+		//coef
+		tempname sim_coef coef_ci
+		tempfile results_coef
+		qui postfile `sim_coef' coef sd p_value lower_bound upper_bound using `results_coef',replace
+		qui use `results3',clear
+		if("`cov'"==""){
+			local colnum=0
+		}
+		forval ii=0/`colnum'{
+			if(`ii'>0){
+				local coef_tar=`coef_output'[1,`ii']
+			}
+			if(`ii'==0){
+				local coef_tar=`cons_output'
+			}
+			qui sum coef if index==`ii'
+			local coef_sd=r(sd)
+			qui _pctile coef if index==`ii',p(`twosidel' ,`twosideu')
+			matrix `coef_ci'=(r(r1),r(r2))
+			local coef_p=round(2*(1-normal(abs(`coef_tar'/`coef_sd'))),0.001)
+			
+			post `sim_coef' (`coef_tar') (`coef_sd') (`coef_p') (`coef_ci'[1,1]) (`coef_ci'[1,2])
+		}
+		postclose `sim_coef'
+
 		restore
 	}
 	
@@ -509,7 +617,8 @@ if("`se'"!="" & "`placeboTest'"==""){
 		local tvalue = invttail(`max_id'-1,`alpha'/2)
 		local ub_jack = `ATT'+`tvalue'*`ATTsd'
 		local lb_jack = `ATT'-`tvalue'*`ATTsd'
-		
+		local ATT_Lower_Bound=`lb_jack'
+		local ATT_Upper_Bound=`ub_jack'
 		matrix `ci_att'=(`lb_jack',`ub_jack') //to save
 		matrix rownames `ci_att' = "Confidence Interval" 
 		matrix colnames `ci_att' = "Lower Bound" "Upper Bound"
@@ -537,6 +646,35 @@ if("`se'"!="" & "`placeboTest'"==""){
 		}
 		
 		postclose `sim_plot'
+
+		//coef
+		tempname sim_coef coef_ci
+		tempfile results_coef
+		qui postfile `sim_coef' coef sd p_value lower_bound upper_bound using `results_coef',replace
+		qui use `results3',clear
+		//list
+		if("`cov'"==""){
+			local colnum=0
+		}
+		forval ii=0/`colnum'{
+			if(`ii'>0){
+				local coef_tar=`coef_output'[1,`ii']
+			}
+			if(`ii'==0){
+				local coef_tar=`cons_output'
+			}
+			qui sum coef if index==`ii'
+			local coef_sd=r(sd)*sqrt(`max_id')
+			local tvalue = invttail(`max_id'-1,`alpha'/2)
+			local ub_jack = `coef_tar'+`tvalue'*`coef_sd'
+			local lb_jack = `coef_tar'-`tvalue'*`coef_sd'
+
+			matrix `coef_ci'=(`lb_jack',`ub_jack')
+			local coef_p=round(2*(1-normal(abs(`coef_tar'/`coef_sd'))),0.001)
+			post `sim_coef' (`coef_tar') (`coef_sd') (`coef_p') (`coef_ci'[1,1]) (`coef_ci'[1,2])
+		}
+		postclose `sim_coef'
+
 		restore
 	}
 	
@@ -624,7 +762,7 @@ if("`se'"=="" & "`placeboTest'"=="" & "`equiTest'"==""){
 	qui egen max_N=max(s_N)
 	qui sum max_N
 	local max_N=r(mean)
-	local axis2_up=20*`max_N'
+	local axis2_up=4*`max_N'
 	qui sum max_atts
 	local max_atts=1.2*r(mean)
 	if `max_atts'<0 {
@@ -632,9 +770,16 @@ if("`se'"=="" & "`placeboTest'"=="" & "`equiTest'"==""){
 	}
 	qui egen min_atts=min(atts)
 	qui sum min_atts
-	local min_atts=2*r(mean)
+	local min_atts=1.2*r(mean)
 	if `min_atts'>0 {
 		local min_atts=0
+	}
+
+	if(abs(`max_atts')>abs(`min_atts')){
+		local min_atts=-`max_atts'*0.8
+	}
+	else{
+		local max_atts=-`min_atts'*0.8
 	}
 	
 	/* Title */
@@ -650,7 +795,7 @@ if("`se'"=="" & "`placeboTest'"=="" & "`equiTest'"==""){
 	
 	qui gen y0=0
 	twoway (line atts y0 s,lcolor(blue gray) yaxis(1) lpattern(solid) lwidth(1.1)) ///
-	(bar s_N s,yaxis(2) barwidth(0.5) color(midblue*0.5)), ///
+	(bar s_N s,yaxis(2) barwidth(0.5) color(midblue%50)), ///
 	 xline(0, lcolor(midblue) lpattern(dash)) ///
 	 yscale(axis(2) r(0 `axis2_up')) ///
 	 yscale(axis(1) r(`min_atts' `max_atts')) ///
@@ -685,7 +830,7 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"==""){
 	qui egen max_N=max(s_N)
 	qui sum max_N
 	local max_N=r(mean)
-	local axis2_up=20*`max_N'
+	local axis2_up=4*`max_N'
 	qui sum max_atts
 	local max_atts=1.2*r(mean)
 	if `max_atts'<0 {
@@ -693,9 +838,16 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"==""){
 	}
 	qui egen min_atts=min(att_lb)
 	qui sum min_atts
-	local min_atts=2*r(mean)
+	local min_atts=1.2*r(mean)
 	if `min_atts'>0 {
 		local min_atts=0
+	}
+
+	if(abs(`max_atts')>abs(`min_atts')){
+		local min_atts=-`max_atts'*0.8
+	}
+	else{
+		local max_atts=-`min_atts'*0.8
 	}
 	
 	/* Title */
@@ -710,9 +862,9 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"==""){
 	}
 	
 	qui gen y0=0
-	twoway (rarea att_lb att_ub s, color(gray*0.3) lcolor(gray) yaxis(1)) ///
+	twoway (rarea att_lb att_ub s, color(gray%30) lcolor(gray) yaxis(1)) ///
 	(line atts y0 s,lcolor(black gray) yaxis(1) lpattern(solid) lwidth(1.1)) ///
-	(bar s_N s,yaxis(2) barwidth(0.5) color(midblue*0.5)), ///
+	(bar s_N s,yaxis(2) barwidth(0.5) color(midblue%50)), ///
 	 xline(0, lcolor(midblue) lpattern(dash)) ///
 	 yscale(axis(2) r(0 `axis2_up')) ///
 	 yscale(axis(1) r(`min_atts' `max_atts')) ///
@@ -787,12 +939,12 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"!=""){
 	qui egen max_atts=max(att_ub) if s<=0
 	qui sum max_atts
 	qui gen yub=r(mean)
-	local max_atts=1.2*r(mean)
+	local max_atts=2*r(mean)
 	if `max_atts'<0 {
 		local max_atts=0
 	}
 	if `max_atts'<`ebound' {
-		local max_atts=`ebound'*1.2
+		local max_atts=`ebound'*2
 	}
 	qui egen min_atts=min(att_lb) if s<=0
 	qui sum min_atts
@@ -802,27 +954,35 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"!=""){
 		local min_atts=0
 	}
 	if `min_atts'>-`ebound' {
-		local min_atts=-`ebound'*1.2
+		local min_atts=-`ebound'*2
 	}
 	qui egen max_N=max(s_N)
 	qui sum max_N
 	local max_N=r(mean)
-	local axis2_up=20*`max_N'
+	local axis2_up=8*`max_N'
 	local CIlevel=100*(1-`alpha')
 	local Tlevel=100*(1-2*`alpha')
 	qui gen y0=0
 	qui gen y1=`ebound'
 	qui gen y2=-`ebound'
+
+	if(abs(`max_atts')>abs(`min_atts')){
+		local min_atts=-`max_atts'*0.8
+	}
+	else{
+		local max_atts=-`min_atts'*0.8
+	}
+
 	
 	/* Title */
 	local xlabel = cond("`xlabel'"=="","Time relative to the Treatment","`xlabel'")
 	local ylabel = cond("`ylabel'"=="","Average Treatment Effect","`ylabel'")
 	local title = cond("`title'"=="","Equivalence Test","`title'")
 	
-	twoway (rarea att_lb att_ub s, color(gray*0.3)  lcolor(gray) yaxis(1)) ///
+	twoway (rarea att_lb att_ub s, color(gray%30)  lcolor(gray) yaxis(1)) ///
 	(line atts y0 s,lcolor(black gray) lpattern(solid) yaxis(1) lwidth(1.1)) ///
-	(line y1 y2 ylb yub s if s<=0,lcolor(blue blue green green) lpattern(dash dash dash dash) yaxis(1) lwidth(0.7 0.7 0.7 0.7)) ///
-	(bar s_N s,yaxis(2) barwidth(0.5) color(midblue*0.5)), ///
+	(line y1 y2 ylb yub s if s<=0,lcolor(blue blue green green) lpattern(dash dash dash dash) yaxis(1) lwidth(0.5 0.5 0.5 0.5)) ///
+	(bar s_N s,yaxis(2) barwidth(0.5) color(midblue%50)), ///
 	xline(0, lcolor(midblue) lpattern(dash)) ///
 	ysc(axis(1) r(`min_atts' `max_atts')) ///
 	ysc(axis(2) r(0 `axis2_up')) ///
@@ -886,6 +1046,11 @@ if("`se'"==""){
 	tempname ATTs_matrix
 	qui mkmat s n ATT, matrix(`ATTs_matrix')
 	ereturn matrix ATTs=`ATTs_matrix'
+	if("`cov'"!=""){
+		ereturn matrix coefs=`coef_output'
+	}
+	ereturn scalar mu=`cons_output'
+
 	restore
 }
 
@@ -893,10 +1058,13 @@ if("`se'"==""){
 if("`se'"!="" & "`placeboTest'"==""){
 	ereturn scalar ATTsd=`ATTsd'
 	ereturn matrix ATTCI=`ci_att'
+
+	ereturn scalar ATT_Lower_Bound=`ATT_Lower_Bound'
+	ereturn scalar ATT_Upper_Bound=`ATT_Upper_Bound'
 	ereturn scalar ATT_pvalue=round(2*(1-normal(abs(`ATT'/`ATTsd'))),0.001)
 }
 
-//ATTs
+//ATTs & coef
 if("`se'"!="" & "`placeboTest'"==""){
 	preserve
 	qui use `results_plot',clear
@@ -912,6 +1080,13 @@ if("`se'"!="" & "`placeboTest'"==""){
 	tempname ATTs_matrix
 	qui mkmat s n ATT ATT_sd ATT_p_value ATT_Lower_Bound ATT_Upper_Bound, matrix(`ATTs_matrix')
 	ereturn matrix ATTs=`ATTs_matrix'
+
+	qui use `results_coef',clear
+	tempname coefs_matrix_output
+	qui mkmat coef sd p_value lower_bound upper_bound, matrix(`coefs_matrix_output')
+	matrix rownames  `coefs_matrix_output'= cons `cov'
+	ereturn matrix coefs=`coefs_matrix_output'
+
 	restore
 }
 //permutation
@@ -932,11 +1107,16 @@ if("`placeboTest'"!=""){
 	ereturn matrix placebo_ATT_CI=`placebo_CI'
 }
 
-qui use `raw',clear		
+//counterfactual
+qui use `raw',clear	
+if("`counterfactual'"!=""){
+	//di as res "Counterfactual"
+	qui use `counter_out',clear
+	
+}
 
 
-
-			   
+		   
 end
 
 *********************************************************functions
@@ -967,10 +1147,11 @@ qui egen `newtime'=group(`time')
 
 /* Normalization */
 tempvar norm_y
-qui sum `outcome' if `treat'==0 & `touse'==1
-local mean_y=r(mean)
-local sd_y=r(sd)
-qui gen `norm_y'=(`outcome'-`mean_y')/`sd_y'
+//qui sum `outcome' if `treat'==0 & `touse'==1
+//local mean_y=r(mean)
+//local sd_y=r(sd)
+//qui gen `norm_y'=(`outcome'-`mean_y')/`sd_y'
+qui gen `norm_y'=`outcome'
 
 /* Regression/Training */
 
@@ -1007,6 +1188,18 @@ if("`method'"=="fe"){
 		}
 	}
 	local Converge=1
+	tempname coef_output
+	if( "`cov'"!=""){
+		forval i=1/`colnum'{
+			if(`i'==1){
+				matrix `coef_output'=(`coefficient'[1,`i'])
+			}
+			else{
+				matrix `coef_output'=(`coef_output',`coefficient'[1,`i'])
+			}
+		}
+	}
+	local mu_output=_b[_cons]
 }
 
 if("`method'"=="bspline"){
@@ -1068,6 +1261,18 @@ if("`method'"=="bspline"){
 		qui replace `counterfactual'=`counterfactual'+`unitFE'`i'*`trend'`i'
 	}
 	local Converge=1
+	tempname coef_output
+	if( "`cov'"!=""){
+		forval i=1/`colnum'{
+			if(`i'==1){
+				matrix `coef_output'=(`coefficient'[1,`i'])
+			}
+			else{
+				matrix `coef_output'=(`coef_output',`coefficient'[1,`i'])
+			}
+		}
+	}
+	local mu_output=_b[_cons]
 }
 
 if("`method'"=="polynomial"){
@@ -1127,6 +1332,18 @@ if("`method'"=="polynomial"){
 		qui replace `counterfactual'=`counterfactual'+`unitFE'`i'*`trend'`i'
 	}
 	local Converge=1
+	tempname coef_output
+	if( "`cov'"!=""){
+		forval i=1/`colnum'{
+			if(`i'==1){
+				matrix `coef_output'=(`coefficient'[1,`i'])
+			}
+			else{
+				matrix `coef_output'=(`coef_output',`coefficient'[1,`i'])
+			}
+		}
+	}
+	local mu_output=_b[_cons]
 }
 
 if("`method'"=="ife"){
@@ -1163,113 +1380,60 @@ if("`method'"=="ife"){
 		local Converge=0
 		di as res "IFE can't converge."
 	}
+	tempname coef_output
+	if "`cov'"!=""{
+		matrix `coef_output'=r(coef)
+	}
+	local mu_output=r(cons)
+
 }
 
 if("`method'"=="mc"){
-	/* Reghdfe-MC Iter */
-	tempname L coef
-	tempvar y counterfactual p_treat reg_hat mc_hat counterfactual counterfactual_lag 
-	local flag=0
-	local theta = `lambda'
-	qui gen `y'=`norm_y' 
-	qui gen `reg_hat'=0
-	qui gen `mc_hat'=0
+	tempvar y FE1 FE2 yearFE unitFE cons counterfactual p_treat
+	qui gen `y'=`outcome'
+	if("`force'"=="two-way"){
+		qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime') savefe
+	}
+	if("`force'"=="unit"){
+		qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid') savefe
+		qui gen `FE2'=0
+	}
+	if("`force'"=="time"){
+		qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime') savefe
+		qui gen `FE1'=0
+	}
+	if("`force'"=="none"){
+		qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,noabsorb
+		qui gen `FE2'=0
+		qui gen `FE1'=0
+	}
+	qui gen `cons'=_b[_cons]
+	qui bys `newtime':egen `yearFE'=mean(`FE2')
+	qui bys `newid':egen `unitFE'=mean(`FE1')
+	drop `FE1' `FE2'
+	
+	sort `newid' `newtime'
 	qui gen `p_treat'=0 
-	qui gen `counterfactual'=0 
-	qui gen `counterfactual_lag'=0
-	qui replace `p_treat'=1 if `treat'==1 | `touse'==0 | `norm_y'==. //treat unused data as missing
-	
-	/* loop */
-	forval k=1/`maxiterations' {
-		tempvar FE1 FE2 timeFE unitFE base mc_in mc_out base delta_counter
-		// two-way-fixed effect part
-		
-		if("`force'"=="two-way"){
-			qui reghdfe `y' `cov' if `treat'==0 & `touse'==1, ab(`FE1'=`newid' `FE2'=`newtime') savefe
-		}
-		if("`force'"=="unit"){
-			qui reghdfe `y' `cov' if `treat'==0 & `touse'==1, ab(`FE1'=`newid') savefe
-			qui gen `FE2'=0
-		}
-		if("`force'"=="time"){
-			qui reghdfe `y' `cov' if `treat'==0 & `touse'==1, ab(`FE2'=`newtime') savefe
-			qui gen `FE1'=0
-		}
-		if("`force'"=="none"){
-			qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,noabsorb
-			qui gen `FE2'=0
-			qui gen `FE1'=0
-		}
-				
-		matrix `coef'=e(b)
-		local colnum=colsof(`coef')-1
-		qui bys `newtime':egen `timeFE'=mean(`FE2')
-		qui bys `newid':egen `unitFE'=mean(`FE1')
-		qui gen `base'=`unitFE'+`timeFE'
-
-		if `colnum'>0 {
-			forval j=1/`colnum' {
-				local p=word("`cov'",`j')
-				qui replace `base'=`base'+`p'*`coef'[1,`j'] 
-			}
-		}
-		
-		qui replace `base'=`base'+`coef'[1,`colnum'+1]
-		// two-way-fixed effect part □
-
-		// mc part
-		qui replace `reg_hat'=`reg_hat'+`base'
-		qui gen `mc_in'=`y'-`base'
-		sort `newid' `newtime'
-		
-		qui inspect `newid' 
-		local num_id=r(N_unique)
-		qui inspect `newtime' 
-		local num_time=r(N_unique)
-		
-		if(`num_id'>=`num_time'){
-			qui mata: mc("`mc_in'","`p_treat'","`newid'","`newtime'",`theta',`tol',`maxiterations',"`L'","`mc_out'")
-		}
-		else{
-			sort `newtime' `newid'
-			qui mata: mc("`mc_in'","`p_treat'","`newtime'","`newid'",`theta',`tol',`maxiterations',"`L'","`mc_out'")
-		}
-		
-		if r(stop)==1 {
-			//di as res "Round `k': MC Converges"
-		}
-		else {
-			//di as res "Round `k': MC Not Converges"
-		}
-		
-		qui replace `mc_hat'=`mc_hat'+`mc_out'
-		qui replace `counterfactual'=`reg_hat'+`mc_hat'
-
-		qui gen `delta_counter'=(`counterfactual'-`counterfactual_lag')^2
-		qui sum `delta_counter' if `p_treat'==0
-
-		if r(mean)<`tol' {
-			di as res "Reghdfe-MC converges in `k' round(s)."
-			local flag=1
-			continue,break
-		}
-
-		qui replace `y'=`norm_y'-`counterfactual'
-		qui replace `counterfactual_lag'=`counterfactual'
-		drop `FE1' `FE2' `timeFE' `unitFE' `base' `mc_in' `mc_out' `base' `delta_counter'
-	}
-	
-	if(`flag'==0){
-		di as res "Reghdfe-MC can't converge."
-		local Converge=0
-	}
-	else{
+	qui replace `p_treat'=1 if `treat'==1 | `touse'==0 | `y'==.
+	qui mata: mc("`y'","`cov'","`p_treat'","`newid'","`newtime'","`force'",`lambda',`tol',`maxiterations',"`counterfactual'","`unitFE'","`yearFE'","`cons'")
+	if(r(stop)==1){
 		local Converge=1
 	}
+	else{
+		local Converge=0
+		di as res "MC can't converge."
+	}
+	
+	tempname coef_output
+	if "`cov'"!=""{
+		matrix `coef_output'=r(coef)
+	}
+	local mu_output=r(cons)
 }
 
-
-qui replace `counterfactual'=`counterfactual'*`sd_y'+`mean_y'
+if("`cov'"!=""){
+	matrix colnames `coef_output' = `cov'
+}
 
 token `varlist'
 qui replace `1' = `counterfactual'
@@ -1286,7 +1450,10 @@ qui replace `3' = `target' if `touse'==1
 qui replace `4' = `ATTs' if `touse'==1
 qui sort `newid' `newtime'
 ereturn scalar converge=`Converge'
-
+ereturn scalar cons= `mu_output'
+if("`cov'"!=""){
+	ereturn matrix coef= `coef_output'
+}
 
 end
 
@@ -1418,42 +1585,42 @@ if("`method'"=="ife" | "`method'"=="both"){
 if("`method'"=="mc" | "`method'"=="both"){
 
 	qui postfile `final_sim2' lambda mspe using `final_results2',replace
-	
+	//get lambda list
+	tempvar FE1 FE2 e
+	if("`force'"=="two-way"){
+		qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, ab(`FE1'=`newid' `FE2'=`newtime') resid
+	}
+	if("`force'"=="unit"){
+		qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, ab(`FE1'=`newid') resid
+	}
+	if("`force'"=="unit"){
+		qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, ab(`FE2'=`newtime') resid
+	}
+	if("`force'"=="none"){
+		qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, noabsorb resid
+	}
+		
+	qui predict `e',residual
+		
+	qui mata: eig_v("`e'","`treat'","`newid'","`newtime'")
+		
+	local lambda_max=log10(r(max_sing))
+	local lambda_by = 3/(`nlambda' - 2)
+	local start_lambda= 10^(`lambda_max')
+		
 	if("`lambda'"==""){
 		if(`nlambda'<3){
 			di as err "nlambda should be larger than 2."
 			exit
 		}
 	
-		//get lambda list
-		tempvar FE1 FE2 e
-		qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, ab(`FE1'=`newid' `FE2'=`newtime') resid
-		qui predict `e',residual
-		
-		qui inspect `newid' 
-		local num_id=r(N_unique)
-		qui inspect `newtime' 
-		local num_time=r(N_unique)
-		
-		if(`num_id'>=`num_time'){
-			qui mata: eig_v("`e'","`treat'","`newid'","`newtime'")
-		}
-		else{
-			qui mata: eig_v("`e'","`treat'","`newtime'","`newid'")
-		}
-		
-		local lambda_max=3*log10(r(max_sing))
-		local ln_lambda_max=ln(`lambda_max')
-		local ln_lambda_by=`ln_lambda_max'/`nlambda'
-		local start_lambda=exp(`ln_lambda_by')
 		
 		local lambda `start_lambda'
 		
 		forval num=2/`nlambda'{
-			local q=`num'*`ln_lambda_by'
-			local lambda_add=exp(`q')
+			local lambda_add=10^(`lambda_max' - (`num' - 1)*`lambda_by')
 			local lambda `lambda' `lambda_add'   
-		}
+		}		
 					
 	}
 		
@@ -1490,8 +1657,9 @@ if("`method'"=="mc" | "`method'"=="both"){
 		qui sum `weight_mean'
 		post `final_sim2' (`lambda_grid') (r(mean))
 		local mspe = string(round(r(mean),.001))
-		local lambda_print = string(round(`lambda_grid',.001))
-		di as txt "mc lambda=`lambda_print' mspe=`mspe'"
+		local lambda_print = string(round(`lambda_grid',.0001))
+		local lambda_norm_print = string(round(`lambda_grid'/`start_lambda',.001))
+		di as txt "mc: lambda=`lambda_print' lambda.norm=`lambda_norm_print' mspe=`mspe'"
 		restore
 	}
 	postclose `final_sim2'
@@ -1992,7 +2160,7 @@ qui egen max_atts=max(att_ub)
 qui egen max_N=max(s_N)
 qui sum max_N
 local max_N=r(mean)
-local axis2_up=20*`max_N'
+local axis2_up=4*`max_N'
 qui sum max_atts
 local max_atts=1.2*r(mean)
 if `max_atts'<0 {
@@ -2000,12 +2168,19 @@ if `max_atts'<0 {
 }
 qui egen min_atts=min(att_lb)
 qui sum min_atts
-local min_atts=2*r(mean)
+local min_atts=1.2*r(mean)
 if `min_atts'>0 {
 	local min_atts=0
 }
 qui gen y0=0
 local placebo_line=`lag'-1
+
+if(abs(`max_atts')>abs(`min_atts')){
+		local min_atts=-`max_atts'*0.8
+	}
+	else{
+		local max_atts=-`min_atts'*0.8
+}
 
 /* Title */
 local xlabel = cond("`xlabel'"=="","Time relative to the Treatment","`xlabel'")
@@ -2013,11 +2188,11 @@ local ylabel = cond("`ylabel'"=="","Average Treatment Effect","`ylabel'")
 local title = cond("`title'"=="","Placebo Test","`title'")
 local neg_lag=-(`lag'-1)
 
-twoway (rarea att_lb att_ub s, color(gray*0.3) lcolor(gray) yaxis(1)) ///
-(rarea att_lb att_ub s if s>-`lag' & s<=0, color(blue*0.3) lcolor(blue) yaxis(1)) ///
+twoway (rarea att_lb att_ub s, color(gray%30) lcolor(gray) yaxis(1)) ///
+(rarea att_lb att_ub s if s>-`lag' & s<=0, color(blue%30) lcolor(blue) yaxis(1)) ///
 (line atts y0 s,lcolor(black gray) yaxis(1) lpattern(solid) lwidth(1.1)) ///
 (scatter atts s if s>-`lag' & s<=0,mcolor(blue) msymbol(O) yaxis(1) msize(small)) ///
-(bar s_N s,yaxis(2) barwidth(0.5) color(midblue*0.5)), ///
+(bar s_N s,yaxis(2) barwidth(0.5) color(midblue%50)), ///
 xline(0 -`placebo_line', lcolor(midblue) lpattern(dash)) ///
 ysc(axis(1) r(`min_atts' `max_atts')) ///
 ysc(axis(2) r(0 `axis2_up')) ///
@@ -2222,7 +2397,7 @@ void gen_s(string missing_treat,string unit, string time, string outputs)
 
 void ife(string outcome, string cov, string treat,  string unit, string time,string force ,real r, real Tol, real iter, string newvarname, string alpha, string xi, string mu)
 {
-	real matrix Y, Y_use, Y_hat, Y_hat_use, tr, use, X, X_use, XX_inv, XY, W, beta_hat, W_hat, W_all_mean, W_unit_mean, W_time_mean
+	real matrix Y, Y_use, Y_hat, Y_hat_use, tr, use, X, X_use, XX_inv, XY, W, beta_hat, W_hat, W_all_mean, W_unit_mean, W_time_mean, W_max
 	real vector tr_index, use_index
 	real scalar p,num_obs,i,num_tr,num_use,j,k, num_unit, num_time,m,trans
 	real matrix unit_index, time_index
@@ -2267,20 +2442,13 @@ void ife(string outcome, string cov, string treat,  string unit, string time,str
 	ife_hat = J(num_obs,1,0)
 	//Y_hat = Y
 	
-	
-	
 	//start: first round
-	
-	
 	for(m=1;m<=iter;m++) {
 		Y_hat = Y-mu_hat-alpha_hat-xi_hat-ife_hat
 		Y_hat_use = Y_hat:*use
 	
 		if(p>0){
-		
-			
 			XY = transposeonly(X_use)*Y_hat_use
-			
 			beta_hat = XX_inv*XY
 		}
 		
@@ -2335,6 +2503,9 @@ void ife(string outcome, string cov, string treat,  string unit, string time,str
 			trans=0
 		}
 		
+		W_max = num_unit*num_time
+		W_hat = W_hat/W_max
+		
 		svd(W_hat,U=.,svd_val=.,Vt=.)
 		target_svd=J(length(svd_val),1,0)
 		for(i=1;i<=r;i++){
@@ -2346,6 +2517,7 @@ void ife(string outcome, string cov, string treat,  string unit, string time,str
 		if(trans==1){
 			ife_matrix=transposeonly(ife_matrix)
 		}
+		ife_matrix=ife_matrix*W_max
 	
 		//update
 		ife_hat = colshape(ife_matrix,1)
@@ -2372,7 +2544,7 @@ void ife(string outcome, string cov, string treat,  string unit, string time,str
 			
 			//sqrt(sum((Y_predict_delta):*Y_predict_delta))/num_use
 			
-			if (sqrt(sum((Y_predict_delta):*Y_predict_delta))/num_use<Tol){
+			if (sqrt(sum(Y_predict_delta:*Y_predict_delta))/sqrt(sum(Y_predict:*Y_predict))<Tol){
 				st_numscalar("r(stop)", 1)
 				break
 			} 
@@ -2383,52 +2555,177 @@ void ife(string outcome, string cov, string treat,  string unit, string time,str
 	
 	st_addvar("double", newvarname)
 	st_store(., newvarname,Y_predict)
+
+	if(p>0){
+		st_matrix("r(coef)",transposeonly(beta_hat))
+	}
+	st_numscalar("r(cons)", mean(W_all_mean))
 	
 }
 
 
 
-void mc(string outcome, string treat, string unit, string time, real theta, real Tol, real iter,string Lname, string newvarname)
+void mc(string outcome, string cov, string treat,  string unit, string time,string force ,real lambda, real Tol, real iter, string newvarname, string alpha, string xi, string mu)
 {
-	real matrix L
-	real matrix lagL
-	real matrix tr,use,x
-	real scalar i,minid,maxid,mintime,maxtime,rownum
-	real matrix out_outcome,index,inverse_index,U,s,Vt
+	real matrix Y, Y_use, Y_hat, Y_hat_use, tr, use, X, X_use, XX_inv, XY, W, beta_hat, W_hat,W_max,WW_hat ,W_all_mean, W_unit_mean, W_time_mean
+	real vector tr_index, use_index
+	real scalar p,num_obs,i,num_tr,num_use,j,k, num_unit, num_time,m,trans,crit
+	real matrix unit_index, time_index
+	real matrix alpha_hat, xi_hat, mu_hat, mc_hat
+	real matrix target_index
+	real matrix U, Vt, svd_val,target_svd, mc_matrix, Y_predict, Y_predict_old, Y_predict_delta
 
 	st_view(tr=.,.,treat)
 	use=(tr:==0)
-	st_view(x=.,.,(unit,time,outcome))
-
-	minid=min(x[,1])
-	maxid=max(x[,1])
-	mintime=min(x[,2])
-	maxtime=max(x[,2])
-	rownum=maxid-minid+1
-
-	index=rowshape(use,rownum)
-	inverse_index=(index:==0)
-	out_outcome=editmissing(rowshape(x[,3],rownum),0):*index
+	num_use=sum(use)
+	num_tr=sum(tr)
+	st_view(X=.,.,(cov))
+	X = editmissing(X,0)
 	
-	lagL=J(rownum,1+maxtime-mintime,0)
-	for(i=1;i<=iter;i++) {
-		svd(out_outcome+inverse_index:*lagL,U=.,s=.,Vt=.)
-		s=s:-theta
-		s=s:*(s:>0)
-		L=U*diag(s)*Vt
-
-		if (sqrt(sum((L-lagL):*(L-lagL)))<Tol) {
-			st_numscalar("r(stop)", 1)
-			break
-		} 
-		st_numscalar("r(stop)", 0)
-		lagL=L
+	st_view(Y=.,.,outcome)
+	Y = editmissing(Y,0)
+	Y_use = Y:*use
+	num_obs=rows(Y)
+	p=cols(X)
+	
+	st_view(unit_index=.,.,unit)
+	st_view(time_index=.,.,time)
+	num_unit=rows(uniqrows(unit_index))
+	num_time=rows(uniqrows(time_index))
+	
+	
+	//get XX_inv
+	if(p>0){
+		X_use = X:*use
+		XX_inv = transposeonly(X_use)*X_use
+		_invsym(XX_inv)
 	}
-	st_matrix(Lname, L)
-	L=colshape(L,1)
+	
+	//get index
+	
+	tr_index=selectindex(tr)
+	use_index=selectindex(use)
+		
+	
+	//initialization
+	st_view(alpha_hat=.,.,alpha)
+	st_view(xi_hat=.,.,xi)
+	st_view(mu_hat=.,.,mu)	
+	mc_hat = J(num_obs,1,0)
+	//Y_hat = Y
+	
+	W_max = num_unit*num_time
+	
+	//start: first round
+	for(m=1;m<=iter;m++) {
+		Y_hat = Y-mu_hat-alpha_hat-xi_hat-mc_hat
+		Y_hat_use = Y_hat:*use
+				
+		if(p>0){
+			XY = transposeonly(X_use)*Y_hat_use
+			beta_hat = XX_inv*XY
+		}
+		
+		W=J(num_obs,1,0)
+		if(p>0){
+			W[use_index,]= Y[use_index,]-X[use_index,]*beta_hat
+		}else{
+			W[use_index,]= Y[use_index,]
+		}
+	
+		W[tr_index,] = mu_hat[tr_index,]  + alpha_hat[tr_index,] + xi_hat[tr_index,] + mc_hat[tr_index,] 
+	
+		//get W_hat
+		W_all_mean=J(num_obs,1,mean(W))
+		W_unit_mean=J(num_obs,1,0)
+		W_time_mean=J(num_obs,1,0)
+			
+		if(force=="two-way"|force=="unit"){
+			for(j=1;j<=num_unit;j++){
+				target_index = (unit_index:==j)
+				W_unit_mean = W_unit_mean:+(target_index*(sum(W:*target_index))/num_time)
+			}
+		}
+		
+		if(force=="two-way"|force=="time"){
+			for(k=1;k<=num_time;k++){
+				target_index = (time_index:==k)
+				W_time_mean = W_time_mean:+(target_index*(sum(W:*target_index))/num_unit)
+			}
+		}
+		
+		if(force=="two-way"){
+			W_hat = W - (W_unit_mean+W_time_mean) + W_all_mean
+		}
+		if(force=="unit"){
+			W_hat = W - W_unit_mean
+		}
+		if(force=="time"){
+			W_hat = W - W_time_mean
+		}
+		if(force=="none"){
+			W_hat = W - W_all_mean
+		}
+		W_hat=rowshape(W_hat,num_unit)
+	
+		//svd
+		if(rows(W_hat)<cols(W_hat)){
+			trans=1
+			W_hat = transposeonly(W_hat)
+		}else{
+			trans=0
+		}
+		W_hat = W_hat/W_max
+		svd(W_hat,U=.,svd_val=.,Vt=.)		
+		svd_val=svd_val:-lambda
+		svd_val=svd_val:*(svd_val:>0)
+		mc_matrix=U*diag(svd_val)*Vt
+		if(trans==1){
+			mc_matrix=transposeonly(mc_matrix)
+		}
+		mc_matrix=mc_matrix*W_max
+	
+		//update
+		mc_hat = colshape(mc_matrix,1)
+		if(force=="two-way"|force=="unit"){
+			alpha_hat = W_unit_mean-W_all_mean
+		}
+		if(force=="two-way"|force=="time"){
+			xi_hat = W_time_mean - W_all_mean
+		}
+		mu_hat = W_all_mean
+		
+		//predict
+		Y_predict = mu_hat+alpha_hat+xi_hat+mc_hat
+		if(p>0){
+			Y_predict = Y_predict + X*beta_hat
+		}
+		if(m==1){
+			Y_predict_old = Y_predict
+		}
+		else{
+			//check converge
+			Y_predict_delta = Y_predict[use_index,]-Y_predict_old[use_index,]
+			crit=sqrt(sum(Y_predict_delta:*Y_predict_delta))/sqrt(sum(Y_predict:*Y_predict))
+			if (crit<Tol){
+				st_numscalar("r(stop)", 1)
+				break
+			} 
+			st_numscalar("r(stop)", 0)
+			Y_predict_old = Y_predict
+		}
+	}
+	
 	st_addvar("double", newvarname)
-	st_store(., newvarname,L)
+	st_store(., newvarname,Y_predict)
+
+	if(p>0){
+		st_matrix("r(coef)",transposeonly(beta_hat))
+	}
+	st_numscalar("r(cons)", mean(W_all_mean))
+	
 }
+
 
 
 
@@ -2524,7 +2821,7 @@ real fold,real period,string validation,real seed)
 void eig_v(string outcome, string treat, string unit, string time)
 {
 	real matrix tr,use,x
-	real scalar minid,maxid,rownum
+	real scalar minid,maxid,rownum,num
 	real matrix out_outcome,index,U,s,Vt
 
 	st_view(tr=.,.,treat)
@@ -2534,15 +2831,15 @@ void eig_v(string outcome, string treat, string unit, string time)
 	minid=min(x[,1])
 	maxid=max(x[,1])
 	rownum=maxid-minid+1
-
+	num=rows(use)
 	index=rowshape(use,rownum)
 	out_outcome=editmissing(rowshape(x[,3],rownum),0):*index
 	
-	svd(out_outcome,U=.,s=.,Vt=.)
-	U=U
-	Vt=Vt
+	out_outcome=out_outcome/num
+	
+	s=svdsv(out_outcome)
+
 	st_numscalar("r(max_sing)", max(s))
-	st_numscalar("r(min_sing)", min(s))
 	
 }
 
