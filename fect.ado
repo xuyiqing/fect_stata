@@ -256,6 +256,12 @@ if(r(N_drop)!=.){
 }
 /* Threshold of touse END*/
 
+
+/* period index */
+tempvar period_s
+qui mata:gen_s("`treat'","`newid'","`newtime'","`period_s'")
+
+
 /* Cross-Validation */
 local lambda_size = wordcount("`lambda'")
 local do_cv = 0
@@ -270,7 +276,7 @@ if((`lambda_size'>1 | `lambda_size'==0)  & "`method'"=="mc"){
 }
 
 if(`do_cv'==1){
-	cross_validation `varlist',treat(`treat') unit(`newid') time(`newtime') method(`method') ///
+	cross_validation `varlist',treat(`treat') unit(`newid') time(`newtime') method(`method') period_s(`period_s') ///
 	force(`force') cov(`cov') `cvtreat' cvnobs(`cvnobs') kfold(`kfold') nknots(`nknots') degree(`degree') ///
 	r(`r') tol(`tol') maxiterations(`maxiterations') nlambda(`nlambda') lambda(`lambda') seed(`seed')
 	
@@ -317,9 +323,9 @@ if("`method'"!="mc"){
 preserve
 tempvar counter TE S ATTs
 
-qui fect_counter `counter' `TE' `S' `ATTs',outcome(`varlist') treat(`treat') unit(`newid') time(`newtime')  ///
+qui fect_counter `counter' `TE' `ATTs',outcome(`varlist') treat(`treat') unit(`newid') time(`newtime') period_s(`period_s') ///
 method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
-maxiterations(`maxiterations') lambda(`lambda')
+maxiterations(`maxiterations') lambda(`lambda') 
 
 local judge_converge=e(converge)
 if `judge_converge'==0{
@@ -339,9 +345,9 @@ local cons_output = e(cons)
 if("`counterfactual'"!=""){
 	tempfile counter_out
 
-	cap gen time_relative_to_treatment=`S'
+	cap gen time_relative_to_treatment=`period_s'
 	if _rc!=0 {
-		cap replace time_relative_to_treatment=`S'
+		cap replace time_relative_to_treatment=`period_s'
 	}
 	cap gen counterfactual_of_response=`counter'
 	if _rc!=0 {
@@ -355,7 +361,7 @@ if("`counterfactual'"!=""){
 
 }
 
-qui sum `S'
+qui sum `period_s'
 local min_s=r(min)
 local max_s=r(max)
 
@@ -383,7 +389,7 @@ tempfile results_nose
 qui postfile `sim_nose' s atts s_N using `results_nose',replace
 
 forvalue s=`min_s'/`max_s' {
-	qui sum `ATTs' if `S'==`s' & `touse'==1
+	qui sum `ATTs' if `period_s'==`s' & `touse'==1
 	if r(N)==0{
 		di in red "No observations for s=`s'"
 		local s_index=`s'-`min_s'
@@ -405,7 +411,7 @@ restore
 /* Permutation Test */
 if("`permutation'"!=""){
 
-permutation `varlist', treat(`treat') unit(`unit') time(`time') ///
+permutation `varlist', treat(`treat') unit(`unit') time(`time') period_s(`period_s') ///
 cov(`cov') force(`force') degree(`degree') nknots(`nknots') ///
 r(`r') lambda(`lambda') method(`method') nboots(`nboots') ///
 tol(`tol') maxiterations(`maxiterations') 
@@ -433,7 +439,7 @@ if("`se'"!="" & "`placeboTest'"==""){
 			drop `newid'
 			rename boot_id `newid'
 			
-			capture qui fect_counter `counter' `TE' `S' `ATTs',outcome(`varlist') treat(`treat') unit(`newid') time(`newtime')  ///
+			capture qui fect_counter `counter' `TE' `ATTs',outcome(`varlist') treat(`treat') unit(`newid') time(`newtime') period_s(`period_s') ///
 			method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
 			maxiterations(`maxiterations') lambda(`lambda')
 			
@@ -462,7 +468,7 @@ if("`se'"!="" & "`placeboTest'"==""){
 
 			/* ATTs */
 			forvalue si=`min_s'/`max_s' {
-				qui sum `ATTs' if `S'==`si' & `touse'==1
+				qui sum `ATTs' if `period_s'==`si' & `touse'==1
 				if r(mean)!=.{
 					post `sim2' (`si') (r(mean))
 				}
@@ -493,7 +499,7 @@ if("`se'"!="" & "`placeboTest'"==""){
 			tempvar counter TE S ATTs
 			qui drop if `order_rank'==`i'
 			
-			capture qui fect_counter `counter' `TE' `S' `ATTs',outcome(`varlist') treat(`treat') unit(`newid') time(`newtime')  ///
+			capture qui fect_counter `counter' `TE' `ATTs',outcome(`varlist') treat(`treat') unit(`newid') time(`newtime') period_s(`period_s')  ///
 			method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
 			maxiterations(`maxiterations') lambda(`lambda')
 			
@@ -523,7 +529,7 @@ if("`se'"!="" & "`placeboTest'"==""){
 		
 			/* ATTs */
 			forvalue si=`min_s'/`max_s' {
-				qui sum `ATTs' if `S'==`si' & `touse'==1
+				qui sum `ATTs' if `period_s'==`si' & `touse'==1
 				if r(mean)!=.{
 					post `sim2' (`si') (r(mean))
 				}
@@ -705,11 +711,11 @@ if("`wald'"!=""){
 	qui save `raw2',replace
 	
 	tempvar counter TE S ATTs
-	qui fect_counter `counter' `TE' `S' `ATTs',outcome(`varlist') treat(`treat') unit(`newid') time(`newtime')  ///
+	qui fect_counter `counter' `TE' `ATTs',outcome(`varlist') treat(`treat') unit(`newid') time(`newtime') period_s(`period_s')  ///
 	method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
 	maxiterations(`maxiterations') lambda(`lambda')
 
-	mata:waldF("`newid'", "`newtime'", "`TE'", "`ATTs'", "`S'", `preperiod', 0,"`touse'")
+	mata:waldF("`newid'", "`newtime'", "`TE'", "`ATTs'", "`period_s'", `preperiod', 0,"`touse'")
 	local F_stat=r(F)
 	
 	forval i=1/`nboots' {
@@ -720,12 +726,12 @@ if("`wald'"!=""){
 		qui gen `new_TE'=`w'*`TE'
 		qui gen `new_outcome'=`counter'+`new_TE'
 		
-		qui fect_counter `counter2' `te2' `s2' `atts2',outcome(`new_outcome') treat(`treat') unit(`newid') time(`newtime')  ///
+		qui fect_counter `counter2' `te2' `atts2',outcome(`new_outcome') treat(`treat') unit(`newid') time(`newtime') period_s(`period_s')  ///
 		method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
 		maxiterations(`maxiterations') lambda(`lambda')
 		
 		sort `newid' `newtime'
-		mata:waldF("`newid'", "`newtime'", "`te2'", "`atts2'", "`s2'",  `preperiod', 0,"`touse'")
+		mata:waldF("`newid'", "`newtime'", "`te2'", "`atts2'", "`period_s'",  `preperiod', 0,"`touse'")
 		
 		post `sim_wald' (r(F))
 		restore	
@@ -1146,10 +1152,11 @@ end
 
 *********************************************************functions
 program fect_counter,eclass
-syntax newvarlist(min=4 max=4 gen) [if] , outcome(varlist min=1 max=1) ///
+syntax newvarlist(min=3 max=3 gen) [if] , outcome(varlist min=1 max=1) ///
 									treat(varlist min=1 max=1) ///
 									unit(varlist min=1 max=1) ///
 									time(varlist min=1 max=1) ///
+									period_s(varlist min=1 max=1) ///
 									method(string) ///
 									force(string) ///
 									[ cov(varlist) ///
@@ -1469,10 +1476,11 @@ qui replace `2' = `treat_effect'
 sort `unit' `time'
 
 tempvar treatsum targettime target ATTs
-qui mata:gen_s("`treat'","`newid'","`newtime'","`target'")
+//qui mata:gen_s("`treat'","`newid'","`newtime'","`target'")
+gen `target'=`period_s'
 qui bys `target':egen `ATTs'= mean(`treat_effect') if `target'!=. & `touse'==1
-qui replace `3' = `target' if `touse'==1 
-qui replace `4' = `ATTs' if `touse'==1
+//qui replace `3' = `target' if `touse'==1 
+qui replace `3' = `ATTs' if `touse'==1
 qui sort `newid' `newtime'
 ereturn scalar converge=`Converge'
 ereturn scalar cons= `mu_output'
@@ -1486,6 +1494,7 @@ program cross_validation,eclass
 syntax varlist(min=1 max=1), treat(varlist min=1 max=1) ///
 						     unit(varlist min=1 max=1) ///
 						     time(varlist min=1 max=1) ///
+							 period_s(varlist min=1 max=1) ///
 						     method(string) ///
 							 force(string) ///
 							[ cov(varlist) ///
@@ -1536,8 +1545,8 @@ if("`method'"=="ife" | "`method'"=="both"){
 			forval i=1/`kfold' {
 				preserve
 				tempvar counter spe TE S ATTs
-				qui fect_counter `counter' `TE' `S' `ATTs' if `validation'!=`i' & `touse'==1,outcome(`varlist') ///
-				treat(`treat') unit(`newid') time(`newtime') ///
+				qui fect_counter `counter' `TE' `ATTs' if `validation'!=`i' & `touse'==1,outcome(`varlist') ///
+				treat(`treat') unit(`newid') time(`newtime') period_s(`period_s') ///
 				cov(`cov') method("fe") force("`force'") 
 				
 				if(e(converge)==0){
@@ -1571,9 +1580,9 @@ if("`method'"=="ife" | "`method'"=="both"){
 			preserve
 			tempvar counter spe TE S ATTs
 
-			qui fect_counter `counter' `TE' `S' `ATTs' if `validation'!=`i' & `touse'==1,outcome(`varlist') ///
-			treat(`treat') unit(`newid') time(`newtime') ///
-			cov(`cov') method("ife") force("`force'") r(`fnum') ///
+			qui fect_counter `counter' `TE' `ATTs' if `validation'!=`i' & `touse'==1,outcome(`varlist') ///
+			treat(`treat') unit(`newid') time(`newtime') period_s(`period_s') ///
+			cov(`cov') method("ife") force("`force'") r(`fnum')  ///
 			tol(`tol') maxiterations(`maxiterations') 
 			
 			if(e(converge)==0){
@@ -1656,8 +1665,8 @@ if("`method'"=="mc" | "`method'"=="both"){
 			preserve
 			tempvar counter spe TE S ATTs
 			
-			qui fect_counter `counter' `TE' `S' `ATTs' if `validation'!=`i' & `touse'==1,outcome(`varlist') ///
-			treat(`treat') unit(`newid') time(`newtime') ///
+			qui fect_counter `counter' `TE' `ATTs' if `validation'!=`i' & `touse'==1,outcome(`varlist') ///
+			treat(`treat') unit(`newid') time(`newtime') period_s(`period_s') ///
 			cov(`cov') method("mc")  force(`force') ///
 			tol(`tol') maxiterations(`maxiterations') lambda(`lambda_grid')
 			
@@ -1703,8 +1712,8 @@ if("`method'"=="bspline"){
 		forval i=1/`kfold' {
 			preserve
 			tempvar counter spe TE S ATTs
-			qui fect_counter `counter' `TE' `S' `ATTs' if `validation'!=`i' & `touse'==1,outcome(`varlist') ///
-			treat(`treat') unit(`newid') time(`newtime') ///
+			qui fect_counter `counter' `TE'  `ATTs' if `validation'!=`i' & `touse'==1,outcome(`varlist') ///
+			treat(`treat') unit(`newid') time(`newtime') period_s(`period_s') ///
 			cov(`cov') method("bspline") nknots(`knot') force(`force')
 
 			qui gen `spe'=(`varlist'-`counter')^2 if `validation'==`i' & `touse'==1
@@ -1744,8 +1753,8 @@ if("`method'"=="polynomial"){
 		forval i=1/`kfold' {
 			preserve
 			tempvar counter spe TE S ATTs
-			qui fect_counter `counter' `TE' `S' `ATTs' if `validation'!=`i' & `touse'==1,outcome(`varlist') ///
-			treat(`treat') unit(`newid') time(`newtime') ///
+			qui fect_counter `counter' `TE' `ATTs' if `validation'!=`i' & `touse'==1,outcome(`varlist') ///
+			treat(`treat') unit(`newid') time(`newtime') period_s(`period_s') ///
 			cov(`cov') method("polynomial") degree(`dg') force(`force')
 
 			qui gen `spe'=(`varlist'-`counter')^2 if `validation'==`i' & `touse'==1
@@ -1925,6 +1934,9 @@ qui mata:p_treat("`treat'","`newid'", "`newtime'","`ptreat'",`lag')
 //generate true s
 tempvar true_s
 qui mata:gen_s("`treat'","`newid'", "`newtime'","`true_s'")
+//generate placebo s
+tempvar placebo_period_s
+qui mata:gen_s("`ptreat'","`newid'", "`newtime'","`placebo_period_s'")
 
 /* Threshold of touse */
 tempvar ftreat notreatnum notmissingy missingy
@@ -1946,8 +1958,8 @@ qui drop if `touse'==0
 preserve
 tempvar counter TE S ATTs
 
-qui fect_counter `counter' `TE' `S' `ATTs',outcome(`varlist') treat(`ptreat') unit(`newid') time(`newtime')  ///
-method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
+qui fect_counter `counter' `TE' `ATTs',outcome(`varlist') treat(`ptreat') unit(`newid') time(`newtime') period_s(`placebo_period_s') ///
+method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol')  ///
 maxiterations(`maxiterations') lambda(`lambda')
 
 qui sum `TE' if `true_s'<=0 & `true_s'>-`lag' & `touse'==1
@@ -1988,7 +2000,7 @@ if("`vartype'"=="bootstrap"){
 		drop `newid'
 		rename boot_id `newid'
 			
-		capture qui fect_counter `counter' `TE' `S' `ATTs',outcome(`varlist') treat(`ptreat') unit(`newid') time(`newtime')  ///
+		capture qui fect_counter `counter' `TE' `ATTs',outcome(`varlist') treat(`ptreat') unit(`newid') time(`newtime') period_s(`placebo_period_s') ///
 		method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
 		maxiterations(`maxiterations') lambda(`lambda')
 			
@@ -2035,7 +2047,7 @@ if("`vartype'"=="jackknife"){
 		tempvar counter TE S ATTs
 		qui drop if `order_rank'==`i'
 			
-		capture qui fect_counter `counter' `TE' `S' `ATTs',outcome(`varlist') treat(`ptreat') unit(`newid') time(`newtime')  ///
+		capture qui fect_counter `counter' `TE' `ATTs',outcome(`varlist') treat(`ptreat') unit(`newid') time(`newtime') period_s(`placebo_period_s')  ///
 		method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
 		maxiterations(`maxiterations') lambda(`lambda')
 			
@@ -2253,6 +2265,7 @@ program define permutation,eclass
 syntax varlist(min=1 max=1) , Treat(varlist min=1 max=1) ///
 								  Unit(varlist min=1 max=1) ///
 								  Time(varlist min=1 max=1) ///
+								  period_s(varlist min=1 max=1) ///
 								[ cov(varlist) ///
 								  force(string) ///
 								  degree(integer 3) ///
@@ -2277,7 +2290,7 @@ sort `newid' `newtime'
 preserve
 tempvar counter TE S ATTs
 
-qui fect_counter `counter' `TE' `S' `ATTs',outcome(`varlist') treat(`treat') unit(`newid') time(`newtime')  ///
+qui fect_counter `counter' `TE' `ATTs',outcome(`varlist') treat(`treat') unit(`newid') time(`newtime') period_s(`period_s') ///
 method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
 maxiterations(`maxiterations') lambda(`lambda')
 
@@ -2298,7 +2311,7 @@ forvalue i=1/`nboots'{
 	qui mata:permute("`treat'","`newid'","`newtime'","`permutreat'")
 	
 	tempvar counter TE S ATTs
-	qui fect_counter `counter' `TE' `S' `ATTs',outcome(`varlist') treat(`permutreat') unit(`newid') time(`newtime')  ///
+	qui fect_counter `counter' `TE' `ATTs',outcome(`varlist') treat(`permutreat') unit(`newid') time(`newtime') period_s(`period_s')  ///
 	method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
 	maxiterations(`maxiterations') lambda(`lambda')
 	
