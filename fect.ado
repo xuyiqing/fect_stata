@@ -3,6 +3,7 @@ cap program drop cross_validation
 cap program drop fect_counter
 cap program drop placebo_Test
 cap program drop permutation
+cap program drop _gwtmean
 
 program define fect,eclass
 version 15
@@ -53,6 +54,12 @@ if _rc {
 	di as error "reghdfe.ado required: {stata ssc install reghdfe,replace}"
 	exit 111
 }
+
+//cap which gtools.ado
+//if _rc {/
+//	di as error "gtools.ado required: {stata ssc install gtools,replace}"/
+//	exit 111
+//}
 
 
 /* treat */
@@ -215,11 +222,13 @@ qui save `raw',replace
 tempvar touse 
 mark `touse' `if'
 qui drop if `touse'==0
+qui drop if `unit' == .
+qui drop if `time' == .
 
 tempvar newid newtime
-qui egen `newid'=group(`unit')
+qui  egen `newid'=group(`unit')
 sort `newid' `time'
-qui egen `newtime'=group(`time')
+qui  egen `newtime'=group(`time')
 	   
 /* Check if the dataset is strongly balanced */	
 qui tsset `newid' `newtime'					   
@@ -239,11 +248,11 @@ tempvar id
 tempvar ftreat notreatnum notmissingy missingy
 gen `ftreat'=0
 qui replace `ftreat'=1 if `treat'==0 & `varlist'!=. //the number of training data
-bys `newid':egen `notreatnum'=sum(`ftreat')
+bys `newid': egen `notreatnum'=sum(`ftreat')
 qui replace `touse'=0 if `notreatnum'<`minT0'
 
 if(`maxmissing'>0){
-bys `newid':egen `notmissingy'=count(`varlist')
+bys `newid': egen `notmissingy'=count(`varlist')
 qui sum `newtime'
 local TT = r(max)-r(min)
 qui gen `missingy'=`TT'-`notmissingy'
@@ -489,9 +498,9 @@ if("`se'"!="" & "`placeboTest'"==""){
 		di as txt "Jackknifing..."
 		tempvar order order_mean order_rank
 		bys `newid': gen `order'=runiform()
-		bys `newid': egen `order_mean'=mean(`order')
+		bys `newid':  egen `order_mean'=mean(`order')
 		sort `order_mean'
-		egen `order_rank'=group(`order_mean')
+		 egen `order_rank'=group(`order_mean')
 		qui sum `newid'
 		local max_id=r(max)
 		forvalue i=1/`max_id'{
@@ -764,8 +773,8 @@ if("`se'"=="" & "`placeboTest'"=="" & "`equiTest'"==""){
 	qui drop if s>`offperiod'
 	qui tsset s
 
-	qui egen max_atts=max(atts)
-	qui egen max_N=max(s_N)
+	qui  egen max_atts=max(atts)
+	qui  egen max_N=max(s_N)
 	qui sum max_N
 	local max_N=r(mean)
 	local axis2_up=4*`max_N'
@@ -774,7 +783,7 @@ if("`se'"=="" & "`placeboTest'"=="" & "`equiTest'"==""){
 	if `max_atts'<0 {
 		local max_atts=0
 	}
-	qui egen min_atts=min(atts)
+	qui  egen min_atts=min(atts)
 	qui sum min_atts
 	local min_atts=1.2*r(mean)
 	if `min_atts'>0 {
@@ -832,8 +841,8 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"==""){
 	qui drop if s>`offperiod'
 	qui tsset s
 	local CIlevel=100*(1-`alpha')
-	qui egen max_atts=max(att_ub)
-	qui egen max_N=max(s_N)
+	qui  egen max_atts=max(att_ub)
+	qui  egen max_N=max(s_N)
 	qui sum max_N
 	local max_N=r(mean)
 	local axis2_up=4*`max_N'
@@ -842,7 +851,7 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"==""){
 	if `max_atts'<0 {
 	local max_atts=0
 	}
-	qui egen min_atts=min(att_lb)
+	qui  egen min_atts=min(att_lb)
 	qui sum min_atts
 	local min_atts=1.2*r(mean)
 	if `min_atts'>0 {
@@ -942,7 +951,7 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"!=""){
 	qui drop if s<`preperiod'
 	qui drop if s>`offperiod'
 	qui tsset s
-	qui egen max_atts=max(att_ub) if s<=0
+	qui  egen max_atts=max(att_ub) if s<=0
 	qui sum max_atts
 	qui gen yub=r(mean)
 	local max_atts=2*r(mean)
@@ -952,7 +961,7 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"!=""){
 	if `max_atts'<`ebound' {
 		local max_atts=`ebound'*2
 	}
-	qui egen min_atts=min(att_lb) if s<=0
+	qui  egen min_atts=min(att_lb) if s<=0
 	qui sum min_atts
 	qui gen ylb=r(mean)
 	local min_atts=2*r(mean)
@@ -962,7 +971,7 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"!=""){
 	if `min_atts'>-`ebound' {
 		local min_atts=-`ebound'*2
 	}
-	qui egen max_N=max(s_N)
+	qui  egen max_N=max(s_N)
 	qui sum max_N
 	local max_N=r(mean)
 	local axis2_up=8*`max_N'
@@ -1173,9 +1182,9 @@ tempvar touse
 mark `touse' `if'
 
 tempvar newid newtime
-qui egen `newid'=group(`unit')
+qui  egen `newid'=group(`unit')
 sort `newid' `time'
-qui egen `newtime'=group(`time')
+qui  egen `newtime'=group(`time')
 
 /* Normalization */
 tempvar norm_y
@@ -1190,24 +1199,28 @@ qui gen `norm_y'=`outcome'
 if("`method'"=="fe"){
 	tempvar FE1 FE2 yearFE unitFE counterfactual
 	if("`force'"=="two-way"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime') savefe
+		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime') ///
+		savefe dof(none)   
 	}
 	if("`force'"=="unit"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid') savefe
+		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid') savefe ///
+		dof(none)   
 		qui gen `FE2'=0
 	}
 	if("`force'"=="time"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime') savefe
+		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime') savefe ///
+		dof(none)   
 		qui gen `FE1'=0
 	}
 	if("`force'"=="none"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,noabsorb
+		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,noabsorb ///
+		dof(none)   
 		qui gen `FE2'=0
 		qui gen `FE1'=0
 	}
 
-	qui bys `newtime':egen `yearFE'=mean(`FE2')
-	qui bys `newid':egen `unitFE'=mean(`FE1')
+	qui bys `newtime': egen `yearFE'=mean(`FE2')
+	qui bys `newid': egen `unitFE'=mean(`FE1')
 	drop `FE1' `FE2'
 	qui gen double `counterfactual'=_b[_cons]+`unitFE'+`yearFE' 
 	if "`cov'"!="" {
@@ -1245,24 +1258,28 @@ if("`method'"=="bspline"){
 	}
 	
 	if("`force'"=="two-way"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime' `FE'=i.`newid'#c.(`trend_all')) savefe
+		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime' `FE'=i.`newid'#c.(`trend_all')) savefe ///
+		dof(none)   
 	}
 	if("`force'"=="unit"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE'=i.`newid'#c.(`trend_all')) savefe
+		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE'=i.`newid'#c.(`trend_all')) savefe ///
+		dof(none)   
 		qui gen `FE2'=0
 	}
 	if("`force'"=="time"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime' `FE'=i.`newid'#c.(`trend_all')) savefe
+		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime' `FE'=i.`newid'#c.(`trend_all')) savefe ///
+		dof(none)   
 		qui gen `FE1'=0
 	}
 	if("`force'"=="none"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE'=i.`newid'#c.(`trend_all')) savefe
+		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE'=i.`newid'#c.(`trend_all')) savefe ///
+		dof(none)   
 		qui gen `FE2'=0
 		qui gen `FE1'=0
 	}
 	
-	qui bys `newtime':egen `yearFE'=mean(`FE2')
-	qui bys `newid':egen `unitFE'=mean(`FE1')
+	qui bys `newtime': egen `yearFE'=mean(`FE2')
+	qui bys `newid': egen `unitFE'=mean(`FE1')
 	drop `FE1' `FE2'
 	
 	if("`force'"!="none"){
@@ -1289,7 +1306,7 @@ if("`method'"=="bspline"){
 	}
 	
 	forvalue i=1/`run'{
-		qui bys `newid':egen `unitFE'`i'=mean(`FE'Slope`i')
+		qui bys `newid': egen `unitFE'`i'=mean(`FE'Slope`i')
 		qui replace `counterfactual'=`counterfactual'+`unitFE'`i'*`trend'`i'
 	}
 	local Converge=1
@@ -1317,24 +1334,28 @@ if("`method'"=="polynomial"){
 	
 	
 	if("`force'"=="two-way"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime' `FE'=i.`newid'#c.(`trend_all')) savefe
+		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime' `FE'=i.`newid'#c.(`trend_all')) savefe ///
+		dof(none)   
 	}
 	if("`force'"=="unit"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE'=i.`newid'#c.(`trend_all')) savefe
+		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE'=i.`newid'#c.(`trend_all')) savefe ///
+		dof(none)   
 		qui gen `FE2'=0
 	}
 	if("`force'"=="time"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime' `FE'=i.`newid'#c.(`trend_all')) savefe
+		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime' `FE'=i.`newid'#c.(`trend_all')) savefe ///
+		dof(none)   
 		qui gen `FE1'=0
 	}
 	if("`force'"=="none"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE'=i.`newid'#c.(`trend_all')) savefe
+		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE'=i.`newid'#c.(`trend_all')) savefe ///
+		dof(none)   
 		qui gen `FE2'=0
 		qui gen `FE1'=0
 	}
 	
-	qui bys `newtime':egen `yearFE'=mean(`FE2')
-	qui bys `newid':egen `unitFE'=mean(`FE1')
+	qui bys `newtime': egen `yearFE'=mean(`FE2')
+	qui bys `newid': egen `unitFE'=mean(`FE1')
 	drop `FE1' `FE2'
 	
 	if("`force'"!="none"){
@@ -1360,7 +1381,7 @@ if("`method'"=="polynomial"){
 	}
 	
 	forvalue i=1/`degree'{
-		qui bys `newid':egen `unitFE'`i'=mean(`FE'Slope`i')
+		qui bys `newid': egen `unitFE'`i'=mean(`FE'Slope`i')
 		qui replace `counterfactual'=`counterfactual'+`unitFE'`i'*`trend'`i'
 	}
 	local Converge=1
@@ -1381,24 +1402,28 @@ if("`method'"=="polynomial"){
 if("`method'"=="ife"){
 	tempvar FE1 FE2 yearFE unitFE cons counterfactual p_treat
 	if("`force'"=="two-way"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime') savefe
+		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime') savefe ///
+		dof(none)   
 	}
 	if("`force'"=="unit"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid') savefe
+		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid') savefe ///
+		dof(none)   
 		qui gen `FE2'=0
 	}
 	if("`force'"=="time"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime') savefe
+		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime') savefe ///
+		dof(none)   
 		qui gen `FE1'=0
 	}
 	if("`force'"=="none"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,noabsorb
+		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,noabsorb ///
+		dof(none)   
 		qui gen `FE2'=0
 		qui gen `FE1'=0
 	}
 	qui gen `cons'=_b[_cons]
-	qui bys `newtime':egen `yearFE'=mean(`FE2')
-	qui bys `newid':egen `unitFE'=mean(`FE1')
+	qui bys `newtime': egen `yearFE'=mean(`FE2')
+	qui bys `newid': egen `unitFE'=mean(`FE1')
 	drop `FE1' `FE2'
 	
 	sort `newid' `newtime'
@@ -1424,24 +1449,28 @@ if("`method'"=="mc"){
 	tempvar y FE1 FE2 yearFE unitFE cons counterfactual p_treat
 	qui gen `y'=`outcome'
 	if("`force'"=="two-way"){
-		qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime') savefe
+		qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime') savefe ///
+		dof(none)   
 	}
 	if("`force'"=="unit"){
-		qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid') savefe
+		qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid') savefe ///
+		dof(none)   
 		qui gen `FE2'=0
 	}
 	if("`force'"=="time"){
-		qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime') savefe
+		qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime') savefe ///
+		dof(none)   
 		qui gen `FE1'=0
 	}
 	if("`force'"=="none"){
-		qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,noabsorb
+		qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,noabsorb ///
+		dof(none)   
 		qui gen `FE2'=0
 		qui gen `FE1'=0
 	}
 	qui gen `cons'=_b[_cons]
-	qui bys `newtime':egen `yearFE'=mean(`FE2')
-	qui bys `newid':egen `unitFE'=mean(`FE1')
+	qui bys `newtime': egen `yearFE'=mean(`FE2')
+	qui bys `newid': egen `unitFE'=mean(`FE1')
 	drop `FE1' `FE2'
 	
 	sort `newid' `newtime'
@@ -1478,7 +1507,7 @@ sort `unit' `time'
 tempvar treatsum targettime target ATTs
 //qui mata:gen_s("`treat'","`newid'","`newtime'","`target'")
 gen `target'=`period_s'
-qui bys `target':egen `ATTs'= mean(`treat_effect') if `target'!=. & `touse'==1
+qui bys `target': egen `ATTs'= mean(`treat_effect') if `target'!=. & `touse'==1
 //qui replace `3' = `target' if `touse'==1 
 qui replace `3' = `ATTs' if `touse'==1
 qui sort `newid' `newtime'
@@ -1516,8 +1545,8 @@ di as txt "{hline}"
 di as txt "Cross Validation..."
 tempvar newid newtime touse
 qui gen `touse'=1
-qui egen `newid'=group(`unit')
-qui egen `newtime'=group(`time')
+qui  egen `newid'=group(`unit')
+qui  egen `newtime'=group(`time')
 sort `newid' `newtime'
 
 tempvar validation
@@ -1532,7 +1561,7 @@ mata: val_gen("`treat'", "`newid'", "`newtime'", "`touse'", ///
 /* Only for treated values */
 if("`cvtreat'"!=""){ 
 	tempvar iftreat
-	qui bys `newid': egen `iftreat'=mean(`treat')
+	qui bys `newid':  egen `iftreat'=mean(`treat')
 	qui replace `validation'=0 if `iftreat'==0
 }
 
@@ -1566,7 +1595,7 @@ if("`method'"=="ife" | "`method'"=="both"){
 		preserve
 		use `results',clear
 		tempvar weight_mean
-		egen `weight_mean'=wtmean(spe),weight(N)
+		 egen `weight_mean'=wtmean(spe),weight(N)
 		qui sum `weight_mean'
 		post `final_sim' (0) (r(mean))
 		local mspe = string(round(r(mean),.001))
@@ -1606,7 +1635,7 @@ if("`method'"=="ife" | "`method'"=="both"){
 		preserve
 		use `results',clear
 		tempvar weight_mean
-		egen `weight_mean'=wtmean(spe),weight(N)
+		 egen `weight_mean'=wtmean(spe),weight(N)
 		qui sum `weight_mean'
 		local mspe = string(round(r(mean),.001))
 		post `final_sim' (`fnum') (r(mean))
@@ -1622,16 +1651,20 @@ if("`method'"=="mc" | "`method'"=="both"){
 	//get lambda list
 	tempvar FE1 FE2 e
 	if("`force'"=="two-way"){
-		qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, ab(`FE1'=`newid' `FE2'=`newtime') resid
+		qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, ab(`FE1'=`newid' `FE2'=`newtime') resid ///
+		dof(none)   
 	}
 	if("`force'"=="unit"){
-		qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, ab(`FE1'=`newid') resid
+		qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, ab(`FE1'=`newid') resid ///
+		dof(none)   
 	}
 	if("`force'"=="unit"){
-		qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, ab(`FE2'=`newtime') resid
+		qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, ab(`FE2'=`newtime') resid ///
+		dof(none)   
 	}
 	if("`force'"=="none"){
-		qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, noabsorb resid
+		qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, noabsorb resid ///
+		dof(none)   
 	}
 		
 	qui predict `e',residual
@@ -1687,7 +1720,7 @@ if("`method'"=="mc" | "`method'"=="both"){
 		preserve
 		use `results',clear
 		tempvar weight_mean
-		egen `weight_mean'=wtmean(spe),weight(N)
+		 egen `weight_mean'=wtmean(spe),weight(N)
 		qui sum `weight_mean'
 		post `final_sim2' (`lambda_grid') (r(mean))
 		local mspe = string(round(r(mean),.001))
@@ -1728,7 +1761,7 @@ if("`method'"=="bspline"){
 		preserve
 		use `results',clear
 		tempvar weight_mean
-		egen `weight_mean'=wtmean(spe),weight(N)
+		 egen `weight_mean'=wtmean(spe),weight(N)
 		qui sum `weight_mean'
 		post `final_sim' (`knot') (r(mean))
 		local mspe = string(round(r(mean),.001))
@@ -1769,7 +1802,7 @@ if("`method'"=="polynomial"){
 		preserve
 		use `results',clear
 		tempvar weight_mean
-		egen `weight_mean'=wtmean(spe),weight(N)
+		 egen `weight_mean'=wtmean(spe),weight(N)
 		qui sum `weight_mean'
 		post `final_sim' (`dg') (r(mean))
 		local mspe = string(round(r(mean),.001))
@@ -1923,8 +1956,8 @@ di as txt "{hline}"
 di as txt "Placebo Test..."
 tempvar newid newtime touse
 qui gen `touse'=1
-qui egen `newid'=group(`unit')
-qui egen `newtime'=group(`time')
+qui  egen `newid'=group(`unit')
+qui  egen `newtime'=group(`time')
 sort `newid' `newtime'
 local lag=`placeboperiod'
 
@@ -1942,11 +1975,11 @@ qui mata:gen_s("`ptreat'","`newid'", "`newtime'","`placebo_period_s'")
 tempvar ftreat notreatnum notmissingy missingy
 gen `ftreat'=0
 qui replace `ftreat'=1 if `ptreat'==0 & `varlist'!=. //the number of training data
-bys `newid':egen `notreatnum'=sum(`ftreat')
+bys `newid': egen `notreatnum'=sum(`ftreat')
 qui replace `touse'=0 if `notreatnum'<`minT0'
 
 if(`maxmissing'>0){
-	bys `newid':egen `notmissingy'=count(`varlist')
+	bys `newid': egen `notmissingy'=count(`varlist')
 	qui sum `newtime'
 	local TT = r(max)-r(min)
 	qui gen `missingy'=`TT'-`notmissingy'
@@ -2037,9 +2070,9 @@ if("`vartype'"=="jackknife"){
 	di as txt "Jackknifing..."
 	tempvar order order_mean order_rank
 	bys `newid': gen `order'=runiform()
-	bys `newid': egen `order_mean'=mean(`order')
+	bys `newid':  egen `order_mean'=mean(`order')
 	sort `order_mean'
-	egen `order_rank'=group(`order_mean')
+	 egen `order_rank'=group(`order_mean')
 	qui sum `newid'
 	local max_id=r(max)
 	forvalue i=1/`max_id'{
@@ -2193,8 +2226,8 @@ preserve
 qui use `results_plot',clear
 qui tsset s
 local CIlevel=100*(1-`alpha')
-qui egen max_atts=max(att_ub)
-qui egen max_N=max(s_N)
+qui  egen max_atts=max(att_ub)
+qui  egen max_N=max(s_N)
 qui sum max_N
 local max_N=r(mean)
 local axis2_up=4*`max_N'
@@ -2203,7 +2236,7 @@ local max_atts=1.2*r(mean)
 if `max_atts'<0 {
 	local max_atts=0
 }
-qui egen min_atts=min(att_lb)
+qui  egen min_atts=min(att_lb)
 qui sum min_atts
 local min_atts=1.2*r(mean)
 if `min_atts'>0 {
@@ -2282,8 +2315,8 @@ set trace off
 di as txt "{hline}"	
 di as txt "Permutation Test..."
 tempvar newid newtime
-qui egen `newid'=group(`unit')
-qui egen `newtime'=group(`time')
+qui  egen `newid'=group(`unit')
+qui  egen `newtime'=group(`time')
 sort `newid' `newtime'
 
 /* estimate ATT */
@@ -2336,9 +2369,29 @@ ereturn scalar permutation_pvalue=`pvalue'
 local pvalue_print=string(round(`pvalue',.001))
 di as res "Permutation Test: p value=`pvalue_print'"
 restore
-
-
 end
+
+program define _gwtmean
+	version 3.0
+	local varlist "req new max(1)"
+	local exp "req nopre"
+	local if "opt"
+	local in "opt"
+	local options "by(string) weight(string)"
+	parse "`*'"
+	tempvar touse 
+	if "`weight'" ~= "" {
+		local weight "* (`weight')"
+	}
+	quietly {
+		gen byte `touse'=1 `if' `in'
+		sort `touse' `by'
+		by `touse' `by': replace `varlist' = /*
+			*/ sum((`exp')`weight')/sum(((`exp')!=.)`weight') if `touse'==1
+		by `touse' `by': replace `varlist' = `varlist'[_N]
+	}
+end
+
 *********************************************************mata
 mata:
 mata clear
@@ -2433,92 +2486,111 @@ void gen_s(string missing_treat,string unit, string time, string outputs)
 	st_store(., outputs,panel_s)
 }
 
-void ife(string outcome, string cov, string treat,  string unit, string time,string force ,real r, real Tol, real iter, string newvarname, string alpha, string xi, string mu)
-{
-	real matrix Y, Y_use, Y_hat, Y_hat_use, tr, use, X, X_use, XX_inv, XY, W, beta_hat, W_hat, W_all_mean, W_unit_mean, W_time_mean, W_max
-	real vector tr_index, use_index
-	real scalar p,num_obs,i,num_tr,num_use,j,k, num_unit, num_time,m,trans
-	real matrix unit_index, time_index
-	real matrix alpha_hat, xi_hat, mu_hat, ife_hat
-	real matrix target_index
-	real matrix U, Vt, svd_val,target_svd, ife_matrix, Y_predict, Y_predict_old, Y_predict_delta
+void ife(string outcome, 
+         string cov, 
+         string treat,  
+         string unit, 
+         string time,
+         string force, 
+         real r, 
+         real Tol, 
+         real iter, 
+         string newvarname, 
+         string alpha, 
+         string xi, 
+         string mu)
+{   
+    real matrix D_long,D_panel
+    real matrix I_long,I_panel
+    real matrix X_long,Y_long,Y_panel,Y_predict,Y_predict_old,Y_predict_delta
+    real scalar num_obs,p
+    real matrix unit_long, time_long
+    real scalar num_unit,num_time
+    real matrix X_long_I, XX_inv, XY, beta_hat
+    real matrix alpha_hat, xi_hat, mu_hat, ife_hat
+    real matrix Y_hat_panel
+    real matrix Y_hat_long_I, Y_hat_panel_I
+    real matrix W
+    real matrix W_all_mean, W_unit_mean, W_time_mean, W_hat
+    real matrix I_NT
+    real scalar trans,m,crit,i
+    real matrix U, Vt, svd_val,target_svd,ife_fit
 
-	st_view(tr=.,.,treat)
-	use=(tr:==0)
-	num_use=sum(use)
-	num_tr=sum(tr)
-	st_view(X=.,.,(cov))
-	X = editmissing(X,0)
-	
-	st_view(Y=.,.,outcome)
-	Y = editmissing(Y,0)
-	Y_use = Y:*use
-	num_obs=rows(Y)
-	p=cols(X)
-	
-	st_view(unit_index=.,.,unit)
-	st_view(time_index=.,.,time)
-	num_unit=rows(uniqrows(unit_index))
-	num_time=rows(uniqrows(time_index))
-	
-	
-	//get XX_inv
+    st_view(D_long=.,.,treat)
+	D_long = editmissing(D_long,0)
+    I_long=(D_long:==0)
+    st_view(X_long=.,.,(cov))
+	X_long = editmissing(X_long,0)
+
+    st_view(Y_long=.,.,outcome)
+	Y_long = editmissing(Y_long,0)
+	num_obs=rows(Y_long)
+	p=cols(X_long)
+
+    st_view(unit_long=.,.,unit)
+	st_view(time_long=.,.,time)
+	unit_long = editmissing(unit_long,0)
+	time_long = editmissing(time_long,0)
+	num_unit=rows(uniqrows(unit_long))
+	num_time=rows(uniqrows(time_long))
+
+    I_NT = J(num_unit,num_time,1)
+
+    //get XX_inv (p×p dimension)
 	if(p>0){
-		X_use = X:*use
-		XX_inv = transposeonly(X_use)*X_use
-		_invsym(XX_inv)
+		X_long_I = X_long:*I_long //NT*p
+		XX_inv = transposeonly(X_long_I)*X_long_I
+		_invsym(XX_inv) //p*p
 	}
 	
-	//get index
-	tr_index=selectindex(tr)
-	use_index=selectindex(use)
+    //reshape Y_long; unit_long; time_long
+    Y_panel=rowshape(Y_long,num_unit) //N*T
+    D_panel=rowshape(D_long,num_unit) //N*T
+    I_panel=rowshape(I_long,num_unit) //N*T
 	
-	//initialization
+    //initialization
 	st_view(alpha_hat=.,.,alpha)
+	alpha_hat = editmissing(alpha_hat,0)
+    alpha_hat = rowshape(alpha_hat,num_unit) //N*T
 	st_view(xi_hat=.,.,xi)
+	xi_hat = editmissing(xi_hat,0)
+    xi_hat = rowshape(xi_hat,num_unit) //N*T
 	st_view(mu_hat=.,.,mu)	
-	ife_hat = J(num_obs,1,0)
-	//Y_hat = Y
-	
-	//start: first round
-	for(m=1;m<=iter;m++) {
-		Y_hat = Y-mu_hat-alpha_hat-xi_hat-ife_hat
-		Y_hat_use = Y_hat:*use
-	
-		if(p>0){
-			XY = transposeonly(X_use)*Y_hat_use
+	mu_hat = editmissing(mu_hat,0)
+    mu_hat = rowshape(mu_hat,num_unit)  //N*T
+	ife_hat = J(num_unit,num_time,0)  //N*T
+
+    // EM Algorithm
+    for(m=1;m<=iter;m++) {
+        Y_hat_panel = Y_panel-mu_hat-alpha_hat-xi_hat-ife_hat
+        Y_hat_panel_I = Y_hat_panel:*I_panel
+        Y_hat_long_I = rowshape(Y_hat_panel_I,num_obs)
+        if(p>0){
+			XY = transposeonly(X_long_I)*Y_hat_long_I
 			beta_hat = XX_inv*XY
 		}
 		
-		W=J(num_obs,1,0)
-		if(p>0){
-			W[use_index,]= Y[use_index,]-X[use_index,]*beta_hat
-		}else{
-			W[use_index,]= Y[use_index,]
-		}
-	
-		W[tr_index,] = mu_hat[tr_index,]  + alpha_hat[tr_index,] + xi_hat[tr_index,] + ife_hat[tr_index,] 
-	
-		//get W_hat
-		W_all_mean=J(num_obs,1,mean(W))
-		W_unit_mean=J(num_obs,1,0)
-		W_time_mean=J(num_obs,1,0)
-			
-		if(force=="two-way"|force=="unit"){
-			for(j=1;j<=num_unit;j++){
-				target_index = (unit_index:==j)
-				W_unit_mean = W_unit_mean:+(target_index*(sum(W:*target_index))/num_time)
-			}
+        //calculate W, a N*T matrix
+        W=J(num_unit,num_time,0) //N*T
+        if(p>0){
+            W = (Y_panel - rowshape(X_long*beta_hat,num_unit)):*I_panel
+        }else{
+            W = Y_panel:*I_panel
+        }
+        W = W + (mu_hat  + alpha_hat + xi_hat + ife_hat):*D_panel
+        
+        //calculate W_mean; W_unit_mean; W_time_mean
+        W_all_mean = J(num_unit,num_time,sum(W)/num_obs)
+        W_unit_mean = J(num_unit,num_time,0)
+        W_time_mean = J(num_unit,num_time,0)
+        if(force=="two-way"|force=="unit"){ // mean across T
+			W_unit_mean = rowsum(W):*I_NT/num_time
 		}
 		
-		if(force=="two-way"|force=="time"){
-			for(k=1;k<=num_time;k++){
-				target_index = (time_index:==k)
-				W_time_mean = W_time_mean:+(target_index*(sum(W:*target_index))/num_unit)
-			}
+        if(force=="two-way"|force=="time"){ // mean across N
+			W_time_mean = I_NT:*colsum(W)/num_unit
 		}
-		
-		if(force=="two-way"){
+        if(force=="two-way"){
 			W_hat = W - (W_unit_mean+W_time_mean) + W_all_mean
 		}
 		if(force=="unit"){
@@ -2531,34 +2603,27 @@ void ife(string outcome, string cov, string treat,  string unit, string time,str
 			W_hat = W - W_all_mean
 		}
 		
-		W_hat=rowshape(W_hat,num_unit)
-	
-		//svd
+        //svd
 		if(rows(W_hat)<cols(W_hat)){
 			trans=1
 			W_hat = transposeonly(W_hat)
 		}else{
 			trans=0
 		}
-		
-		W_max = num_unit*num_time
-		W_hat = W_hat/W_max
-		
+		W_hat = W_hat/num_obs
 		svd(W_hat,U=.,svd_val=.,Vt=.)
 		target_svd=J(length(svd_val),1,0)
 		for(i=1;i<=r;i++){
 			target_svd[i,]=1
 		}
 		svd_val=svd_val:*target_svd
-		ife_matrix = U[|1,1\.,r|]*diag(svd_val)[|1,1\r,r|]*Vt[|1,1\r,.|]
-		
+		ife_fit = U[|1,1\.,r|]*diag(svd_val)[|1,1\r,r|]*Vt[|1,1\r,.|]
 		if(trans==1){
-			ife_matrix=transposeonly(ife_matrix)
+			ife_fit=transposeonly(ife_fit)
 		}
-		ife_matrix=ife_matrix*W_max
-	
-		//update
-		ife_hat = colshape(ife_matrix,1)
+		
+        //update
+		ife_hat=ife_fit*num_obs
 		if(force=="two-way"|force=="unit"){
 			alpha_hat = W_unit_mean-W_all_mean
 		}
@@ -2566,185 +2631,18 @@ void ife(string outcome, string cov, string treat,  string unit, string time,str
 			xi_hat = W_time_mean - W_all_mean
 		}
 		mu_hat = W_all_mean
-		
-		//predict
+
+        //predict
 		Y_predict = mu_hat+alpha_hat+xi_hat+ife_hat
 		if(p>0){
-			Y_predict = Y_predict + X*beta_hat
+			Y_predict = Y_predict + rowshape(X_long*beta_hat,num_unit)
 		}
-		
-		if(m==1){
+
+        if(m==1){
 			Y_predict_old = Y_predict
-		}else{
-			//check converge
-			
-			Y_predict_delta = Y_predict[use_index,]-Y_predict_old[use_index,]
-			
-			//sqrt(sum((Y_predict_delta):*Y_predict_delta))/num_use
-			
-			if (sqrt(sum(Y_predict_delta:*Y_predict_delta))/sqrt(sum(Y_predict:*Y_predict))<Tol){
-				st_numscalar("r(stop)", 1)
-				break
-			} 
-			st_numscalar("r(stop)", 0)
-			Y_predict_old = Y_predict
-		}
-	}
-	
-	st_addvar("double", newvarname)
-	st_store(., newvarname,Y_predict)
-
-	if(p>0){
-		st_matrix("r(coef)",transposeonly(beta_hat))
-	}
-	st_numscalar("r(cons)", mean(W_all_mean))
-	
-}
-
-
-
-void mc(string outcome, string cov, string treat,  string unit, string time,string force ,real lambda, real Tol, real iter, string newvarname, string alpha, string xi, string mu)
-{
-	real matrix Y, Y_use, Y_hat, Y_hat_use, tr, use, X, X_use, XX_inv, XY, W, beta_hat, W_hat,W_max,WW_hat ,W_all_mean, W_unit_mean, W_time_mean
-	real vector tr_index, use_index
-	real scalar p,num_obs,i,num_tr,num_use,j,k, num_unit, num_time,m,trans,crit
-	real matrix unit_index, time_index
-	real matrix alpha_hat, xi_hat, mu_hat, mc_hat
-	real matrix target_index
-	real matrix U, Vt, svd_val,target_svd, mc_matrix, Y_predict, Y_predict_old, Y_predict_delta
-
-	st_view(tr=.,.,treat)
-	use=(tr:==0)
-	num_use=sum(use)
-	num_tr=sum(tr)
-	st_view(X=.,.,(cov))
-	X = editmissing(X,0)
-	
-	st_view(Y=.,.,outcome)
-	Y = editmissing(Y,0)
-	Y_use = Y:*use
-	num_obs=rows(Y)
-	p=cols(X)
-	
-	st_view(unit_index=.,.,unit)
-	st_view(time_index=.,.,time)
-	num_unit=rows(uniqrows(unit_index))
-	num_time=rows(uniqrows(time_index))
-	
-	
-	//get XX_inv
-	if(p>0){
-		X_use = X:*use
-		XX_inv = transposeonly(X_use)*X_use
-		_invsym(XX_inv)
-	}
-	
-	//get index
-	
-	tr_index=selectindex(tr)
-	use_index=selectindex(use)
-		
-	
-	//initialization
-	st_view(alpha_hat=.,.,alpha)
-	st_view(xi_hat=.,.,xi)
-	st_view(mu_hat=.,.,mu)	
-	mc_hat = J(num_obs,1,0)
-	//Y_hat = Y
-	
-	W_max = num_unit*num_time
-	
-	//start: first round
-	for(m=1;m<=iter;m++) {
-		Y_hat = Y-mu_hat-alpha_hat-xi_hat-mc_hat
-		Y_hat_use = Y_hat:*use
-				
-		if(p>0){
-			XY = transposeonly(X_use)*Y_hat_use
-			beta_hat = XX_inv*XY
-		}
-		
-		W=J(num_obs,1,0)
-		if(p>0){
-			W[use_index,]= Y[use_index,]-X[use_index,]*beta_hat
-		}else{
-			W[use_index,]= Y[use_index,]
-		}
-	
-		W[tr_index,] = mu_hat[tr_index,]  + alpha_hat[tr_index,] + xi_hat[tr_index,] + mc_hat[tr_index,] 
-	
-		//get W_hat
-		W_all_mean=J(num_obs,1,mean(W))
-		W_unit_mean=J(num_obs,1,0)
-		W_time_mean=J(num_obs,1,0)
-			
-		if(force=="two-way"|force=="unit"){
-			for(j=1;j<=num_unit;j++){
-				target_index = (unit_index:==j)
-				W_unit_mean = W_unit_mean:+(target_index*(sum(W:*target_index))/num_time)
-			}
-		}
-		
-		if(force=="two-way"|force=="time"){
-			for(k=1;k<=num_time;k++){
-				target_index = (time_index:==k)
-				W_time_mean = W_time_mean:+(target_index*(sum(W:*target_index))/num_unit)
-			}
-		}
-		
-		if(force=="two-way"){
-			W_hat = W - (W_unit_mean+W_time_mean) + W_all_mean
-		}
-		if(force=="unit"){
-			W_hat = W - W_unit_mean
-		}
-		if(force=="time"){
-			W_hat = W - W_time_mean
-		}
-		if(force=="none"){
-			W_hat = W - W_all_mean
-		}
-		W_hat=rowshape(W_hat,num_unit)
-	
-		//svd
-		if(rows(W_hat)<cols(W_hat)){
-			trans=1
-			W_hat = transposeonly(W_hat)
-		}else{
-			trans=0
-		}
-		W_hat = W_hat/W_max
-		svd(W_hat,U=.,svd_val=.,Vt=.)		
-		svd_val=svd_val:-lambda
-		svd_val=svd_val:*(svd_val:>0)
-		mc_matrix=U*diag(svd_val)*Vt
-		if(trans==1){
-			mc_matrix=transposeonly(mc_matrix)
-		}
-		mc_matrix=mc_matrix*W_max
-	
-		//update
-		mc_hat = colshape(mc_matrix,1)
-		if(force=="two-way"|force=="unit"){
-			alpha_hat = W_unit_mean-W_all_mean
-		}
-		if(force=="two-way"|force=="time"){
-			xi_hat = W_time_mean - W_all_mean
-		}
-		mu_hat = W_all_mean
-		
-		//predict
-		Y_predict = mu_hat+alpha_hat+xi_hat+mc_hat
-		if(p>0){
-			Y_predict = Y_predict + X*beta_hat
-		}
-		if(m==1){
-			Y_predict_old = Y_predict
-		}
-		else{
-			//check converge
-			Y_predict_delta = Y_predict[use_index,]-Y_predict_old[use_index,]
-			crit=sqrt(sum(Y_predict_delta:*Y_predict_delta))/sqrt(sum(Y_predict:*Y_predict))
+		}else{ 
+			Y_predict_delta = (Y_predict-Y_predict_old):*I_panel
+			crit = sqrt(sum(Y_predict_delta:*Y_predict_delta))/sqrt(sum(Y_predict:*Y_predict))
 			if (crit<Tol){
 				st_numscalar("r(stop)", 1)
 				break
@@ -2752,26 +2650,204 @@ void mc(string outcome, string cov, string treat,  string unit, string time,stri
 			st_numscalar("r(stop)", 0)
 			Y_predict_old = Y_predict
 		}
-	}
-	
-	st_addvar("double", newvarname)
+    }
+	Y_predict = rowshape(Y_predict,num_obs)
+    st_addvar("double", newvarname)
 	st_store(., newvarname,Y_predict)
 
 	if(p>0){
 		st_matrix("r(coef)",transposeonly(beta_hat))
 	}
-	st_numscalar("r(cons)", mean(W_all_mean))
-	
+	st_numscalar("r(cons)", sum(W_all_mean)/num_obs)
 }
 
 
+void mc(string outcome, 
+        string cov, 
+        string treat,  
+        string unit, 
+        string time,
+        string force ,
+        real lambda, 
+        real Tol, 
+        real iter, 
+        string newvarname, 
+        string alpha, 
+        string xi, 
+        string mu)
+{    
+    real matrix D_long,D_panel
+    real matrix I_long,I_panel
+    real matrix X_long,Y_long,Y_panel,Y_predict,Y_predict_old,Y_predict_delta
+    real scalar num_obs,p
+    real matrix unit_long, time_long
+    real scalar num_unit,num_time
+    real matrix X_long_I, XX_inv, XY, beta_hat
+    real matrix alpha_hat, xi_hat, mu_hat, mc_hat
+    real matrix Y_hat_panel
+    real matrix Y_hat_long_I, Y_hat_panel_I
+    real matrix W
+    real matrix W_all_mean, W_unit_mean, W_time_mean, W_hat
+    real matrix I_NT
+    real scalar trans,m,crit
+    real matrix U, Vt, svd_val,mc_fit
+
+    st_view(D_long=.,.,treat)
+	D_long = editmissing(D_long,0)
+    I_long=(D_long:==0)
+    st_view(X_long=.,.,(cov))
+	X_long = editmissing(X_long,0)
+
+    st_view(Y_long=.,.,outcome)
+	Y_long = editmissing(Y_long,0)
+	num_obs=rows(Y_long)
+	p=cols(X_long)
+
+    st_view(unit_long=.,.,unit)
+	st_view(time_long=.,.,time)
+	unit_long = editmissing(unit_long,0)
+	time_long = editmissing(time_long,0)
+	num_unit=rows(uniqrows(unit_long))
+	num_time=rows(uniqrows(time_long))
+
+    I_NT = J(num_unit,num_time,1)
+
+    //get XX_inv (p×p dimension)
+	if(p>0){
+		X_long_I = X_long:*I_long //NT*p
+		XX_inv = transposeonly(X_long_I)*X_long_I
+		_invsym(XX_inv) //p*p
+	}
+	
+    //reshape Y_long; unit_long; time_long
+    Y_panel=rowshape(Y_long,num_unit) //N*T
+    D_panel=rowshape(D_long,num_unit) //N*T
+    I_panel=rowshape(I_long,num_unit) //N*T
+	
+    //initialization
+	st_view(alpha_hat=.,.,alpha)
+	alpha_hat = editmissing(alpha_hat,0)
+    alpha_hat = rowshape(alpha_hat,num_unit) //N*T
+	st_view(xi_hat=.,.,xi)
+	xi_hat = editmissing(xi_hat,0)
+    xi_hat = rowshape(xi_hat,num_unit) //N*T
+	st_view(mu_hat=.,.,mu)	
+	mu_hat = editmissing(mu_hat,0)
+    mu_hat = rowshape(mu_hat,num_unit)  //N*T
+	mc_hat = J(num_unit,num_time,0)  //N*T
+
+    // EM Algorithm
+    for(m=1;m<=iter;m++) {
+        Y_hat_panel = Y_panel-mu_hat-alpha_hat-xi_hat-mc_hat
+        Y_hat_panel_I = Y_hat_panel:*I_panel
+        Y_hat_long_I = rowshape(Y_hat_panel_I,num_obs)
+        if(p>0){
+			XY = transposeonly(X_long_I)*Y_hat_long_I
+			beta_hat = XX_inv*XY
+		}
+		
+        //calculate W, a N*T matrix
+        W=J(num_unit,num_time,0) //N*T
+        if(p>0){
+            W = (Y_panel - rowshape(X_long*beta_hat,num_unit)):*I_panel
+        }else{
+            W = Y_panel:*I_panel
+        }
+        W = W + (mu_hat  + alpha_hat + xi_hat + mc_hat):*D_panel
+        
+        //calculate W_mean; W_unit_mean; W_time_mean
+        W_all_mean = J(num_unit,num_time,sum(W)/num_obs)
+        W_unit_mean = J(num_unit,num_time,0)
+        W_time_mean = J(num_unit,num_time,0)
+        if(force=="two-way"|force=="unit"){ // mean across T
+			W_unit_mean = rowsum(W):*I_NT/num_time
+		}
+		
+        if(force=="two-way"|force=="time"){ // mean across N
+			W_time_mean = I_NT:*colsum(W)/num_unit
+		}
+        if(force=="two-way"){
+			W_hat = W - (W_unit_mean+W_time_mean) + W_all_mean
+		}
+		if(force=="unit"){
+			W_hat = W - W_unit_mean
+		}
+		if(force=="time"){
+			W_hat = W - W_time_mean
+		}
+		if(force=="none"){
+			W_hat = W - W_all_mean
+		}
+		
+        //svd
+		if(rows(W_hat)<cols(W_hat)){
+			trans=1
+			W_hat = transposeonly(W_hat)
+		}else{
+			trans=0
+		}
+		W_hat = W_hat/num_obs
+		svd(W_hat,U=.,svd_val=.,Vt=.)		
+		svd_val=svd_val:-lambda
+		svd_val=svd_val:*(svd_val:>0)
+		mc_fit=U*diag(svd_val)*Vt
+
+		if(trans==1){
+			mc_fit=transposeonly(mc_fit)
+		}
+		
+        //update
+		mc_hat=mc_fit*num_obs
+		if(force=="two-way"|force=="unit"){
+			alpha_hat = W_unit_mean-W_all_mean
+		}
+		if(force=="two-way"|force=="time"){
+			xi_hat = W_time_mean - W_all_mean
+		}
+		mu_hat = W_all_mean
+
+        //predict
+		Y_predict = mu_hat+alpha_hat+xi_hat+mc_hat
+		if(p>0){
+			Y_predict = Y_predict + rowshape(X_long*beta_hat,num_unit)
+		}
+
+        if(m==1){
+			Y_predict_old = Y_predict
+		}else{ 
+			Y_predict_delta = (Y_predict-Y_predict_old):*I_panel
+			crit = sqrt(sum(Y_predict_delta:*Y_predict_delta))/sqrt(sum(Y_predict:*Y_predict))
+			if (crit<Tol){
+				st_numscalar("r(stop)", 1)
+				break
+			} 
+			st_numscalar("r(stop)", 0)
+			Y_predict_old = Y_predict
+		}
+    }
+	Y_predict = rowshape(Y_predict,num_obs)
+    st_addvar("double", newvarname)
+	st_store(., newvarname,Y_predict)
+
+	if(p>0){
+		st_matrix("r(coef)",transposeonly(beta_hat))
+	}
+	st_numscalar("r(cons)", sum(W_all_mean)/num_obs)
+
+}
 
 
-void val_gen(string treat, string unit, string time, string touse, ///
-real fold,real period,string validation,real seed)
+void val_gen(string treat, 
+			 string unit, 
+			 string time, 
+			 string touse, 
+			 real fold,
+			 real period,
+			 string validation,
+			 real seed)
 {
 	real matrix panel_treat,x,panel_touse,groupid,slice_treat,slice_touse,index,targetindex
-	real scalar minid,maxid,mintime,maxtime,rownum,colnum,i,j,k,groupnum,colcut,mod,indexcut,num_infold
+	real scalar minid,maxid,mintime,maxtime,rownum,colnum,i,j,k,groupnum,colcut,mod,num_infold
 	st_view(x=.,.,(unit,time,treat,touse))
 
 	minid=min(x[,1])
@@ -2860,7 +2936,7 @@ void eig_v(string outcome, string treat, string unit, string time)
 {
 	real matrix tr,use,x
 	real scalar minid,maxid,rownum,num
-	real matrix out_outcome,index,U,s,Vt
+	real matrix out_outcome,index,s
 
 	st_view(tr=.,.,treat)
 	use=(tr:==0)
@@ -2881,7 +2957,11 @@ void eig_v(string outcome, string treat, string unit, string time)
 	
 }
 
-void p_treat(string Treat,string unit, string time, string outputs,real period)
+void p_treat(string Treat,
+			 string unit, 
+			 string time, 
+			 string outputs,
+			 real period)
 {
 	real matrix treat,panel_treat,x,placebotreat
 	real scalar minid,maxid,mintime,maxtime,rownum,colnum,i,j,k
@@ -2917,8 +2997,14 @@ void p_treat(string Treat,string unit, string time, string outputs,real period)
 	st_store(., outputs,placebotreat)
 }
 
-void waldF(string scalar Id, string scalar Time, string scalar TE, string scalar ATTs, string scalar S, ///
-real scalar from, real scalar to, string scalar to_use)
+void waldF(string scalar Id, 
+		   string scalar Time, 
+		   string scalar TE, 
+		   string scalar ATTs, 
+		   string scalar S, 
+		   real scalar from, 
+		   real scalar to, 
+		   string scalar to_use)
 {
 	real matrix panel_s,panel_atts,panel_e,id,s,time,atts,e,touse,panel_touse
 	real scalar maxid,maxtime,mintime,timespan,Ot,nominator,denominator,Fobs,i,j,mi
@@ -2983,16 +3069,14 @@ real scalar from, real scalar to, string scalar to_use)
 void permute(string demissing_treat,string unit, string time, string permu_treat)
 {
 	real matrix treat,treat2,panel_treat,panel_treat2,x,index
-	real scalar minid,maxid,mintime,maxtime,rownum,colnum,i,j
+	real scalar minid,maxid,rownum,i
 	st_view(treat=.,.,demissing_treat)
 	st_view(x=.,.,(unit,time))
 
 	minid=min(x[,1])
 	maxid=max(x[,1])
-	mintime=min(x[,2])
-	maxtime=max(x[,2])
 	rownum=maxid-minid+1
-	colnum=maxtime-mintime+1
+	
 
 	panel_treat=treat
 	panel_treat=rowshape(panel_treat,rownum)
