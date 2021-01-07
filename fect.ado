@@ -280,10 +280,22 @@ if(`maxmissing'>0){
 }
 qui drop if `touse'==0
 
-if(r(N_drop)!=.){
+if(r(N_drop)>0){
 	di as res "Some treated units has too few pre-treatment periods; they are removed automatically."
 }
 /* Threshold of touse END*/
+
+/* Re-Index */
+tempvar newid2 newtime2
+qui  egen `newid2'=group(`newid')
+qui sort `newid2' `time'
+qui  egen `newtime2'=group(`newtime')
+qui sort `newid2' `newtime2'
+qui drop `newid'
+qui drop `newtime'
+qui rename `newid2' `newid'
+qui rename 	`newtime2' `newtime'
+qui tsset `newid' `newtime'
 
 
 /* period index */
