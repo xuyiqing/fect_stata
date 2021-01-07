@@ -12,6 +12,7 @@ syntax varlist(min=1 max=1) [if], Treat(varlist min=1 max=1) ///
 								  Unit(varlist min=1 max=1) ///
 								  Time(varlist min=1 max=1) ///
 								[ cov(varlist) ///
+								  weight(varlist max=1) ///
 								  force(string) ///
 								  degree(integer 3) ///
 								  nknots(integer 3) ///
@@ -63,11 +64,13 @@ if _rc {
 
 
 /* treat */
-qui sum `treat'
+qui sum `treat',meanonly
 if(r(min)!=0 | r(max)!=1){
 	dis as err "treat() invalid; should only contain 0 and 1."
 	exit
 }
+
+
 
 /* force */
 local force = cond("`force'"=="","two-way","`force'")
@@ -219,6 +222,7 @@ if("`se'"==""){
 /* save raw data */
 tempfile raw
 qui save `raw',replace
+qui keep `varlist' `treat' `unit' `time' `cov' `weight'
 tempvar touse 
 mark `touse' `if'
 qui drop if `touse'==0
@@ -229,6 +233,22 @@ tempvar newid newtime
 qui  egen `newid'=group(`unit')
 sort `newid' `time'
 qui  egen `newtime'=group(`time')
+
+/* weight */
+if("`weight'"!=""){
+	tempvar sd_weight
+	qui bys `newid': egen `sd_weight' = sd(`weight')
+	qui sum `sd_weight',meanonly
+	if(r(mean)!=0){
+		di as err "weights should be the same across periods for each unit."
+		exit
+	}
+}
+else{
+	qui cap drop `weight'
+	tempvar weight
+	qui gen `weight' = 1
+}
 	   
 /* Check if the dataset is strongly balanced */	
 qui tsset `newid' `newtime'					   
@@ -252,11 +272,11 @@ bys `newid': egen `notreatnum'=sum(`ftreat')
 qui replace `touse'=0 if `notreatnum'<`minT0'
 
 if(`maxmissing'>0){
-bys `newid': egen `notmissingy'=count(`varlist')
-qui sum `newtime'
-local TT = r(max)-r(min)
-qui gen `missingy'=`TT'-`notmissingy'
-qui replace `touse'=0 if `missingy'>`maxmissing'
+	bys `newid': egen `notmissingy'=count(`varlist')
+	qui sum `newtime',meanonly
+	local TT = r(max)-r(min)
+	qui gen `missingy'=`TT'-`notmissingy'
+	qui replace `touse'=0 if `missingy'>`maxmissing'
 }
 qui drop if `touse'==0
 
@@ -286,7 +306,8 @@ if((`lambda_size'>1 | `lambda_size'==0)  & "`method'"=="mc"){
 
 if(`do_cv'==1){
 	cross_validation `varlist',treat(`treat') unit(`newid') time(`newtime') method(`method') period_s(`period_s') ///
-	force(`force') cov(`cov') `cvtreat' cvnobs(`cvnobs') kfold(`kfold') nknots(`nknots') degree(`degree') ///
+	weight(`weight') force(`force') cov(`cov') `cvtreat' cvnobs(`cvnobs') ///
+	kfold(`kfold') nknots(`nknots') degree(`degree') ///
 	r(`r') tol(`tol') maxiterations(`maxiterations') nlambda(`nlambda') lambda(`lambda') seed(`seed')
 	
 	local method_index=e(method)
@@ -338,7 +359,7 @@ maxiterations(`maxiterations') lambda(`lambda')
 
 local judge_converge=e(converge)
 if `judge_converge'==0{
-	dis as err "`method' can't converge"
+	dis as err "`method' can't converge."
     exit
 }
 
@@ -370,7 +391,7 @@ if("`counterfactual'"!=""){
 
 }
 
-qui sum `period_s'
+qui sum `period_s',meanonly
 local min_s=r(min)
 local max_s=r(max)
 
@@ -389,7 +410,9 @@ else{
 }
 
 sort `newid' `newtime'
-qui sum `TE' if `treat'==1 & `touse'==1
+qui sum `TE' [iweight = `weight'] if `treat'==1 & `touse'==1 ,meanonly
+
+
 local ATT=r(mean) //to save
 local N_alltreat=r(N) //to save
 
@@ -398,7 +421,7 @@ tempfile results_nose
 qui postfile `sim_nose' s atts s_N using `results_nose',replace
 
 forvalue s=`min_s'/`max_s' {
-	qui sum `ATTs' if `period_s'==`s' & `touse'==1
+	qui sum `ATTs' [iweight = `weight'] if `period_s'==`s' & `touse'==1,meanonly
 	if r(N)==0{
 		di in red "No observations for s=`s'"
 		local s_index=`s'-`min_s'
@@ -420,8 +443,9 @@ restore
 /* Permutation Test */
 if("`permutation'"!=""){
 
-permutation `varlist', treat(`treat') unit(`unit') time(`time') period_s(`period_s') ///
-cov(`cov') force(`force') degree(`degree') nknots(`nknots') ///
+permutation `varlist', treat(`treat') unit(`unit') time(`time') ///
+period_s(`period_s') cov(`cov') weight(`weight') ///
+ force(`force') degree(`degree') nknots(`nknots') ///
 r(`r') lambda(`lambda') method(`method') nboots(`nboots') ///
 tol(`tol') maxiterations(`maxiterations') 
 
@@ -470,14 +494,14 @@ if("`se'"!="" & "`placeboTest'"==""){
 			}
 			
 			/* ATT */
-			qui sum `TE' if `treat'==1 & `touse'==1
+			qui sum `TE' [iweight = `weight'] if `treat'==1 & `touse'==1,meanonly
 			if r(mean)!=.{
 				post `sim' (r(mean))
 			}
 
 			/* ATTs */
 			forvalue si=`min_s'/`max_s' {
-				qui sum `ATTs' if `period_s'==`si' & `touse'==1
+				qui sum `ATTs' [iweight = `weight'] if `period_s'==`si' & `touse'==1,meanonly
 				if r(mean)!=.{
 					post `sim2' (`si') (r(mean))
 				}
@@ -501,7 +525,7 @@ if("`se'"!="" & "`placeboTest'"==""){
 		bys `newid':  egen `order_mean'=mean(`order')
 		sort `order_mean'
 		 egen `order_rank'=group(`order_mean')
-		qui sum `newid'
+		qui sum `newid',meanonly
 		local max_id=r(max)
 		forvalue i=1/`max_id'{
 			preserve
@@ -531,14 +555,14 @@ if("`se'"!="" & "`placeboTest'"==""){
 			
 			
 			/* ATT */
-			qui sum `TE' if `treat'==1 & `touse'==1
+			qui sum `TE' [iweight = `weight'] if `treat'==1 & `touse'==1,meanonly
 			if r(mean)!=.{
 				post `sim' (r(mean))
 			}
 		
 			/* ATTs */
 			forvalue si=`min_s'/`max_s' {
-				qui sum `ATTs' if `period_s'==`si' & `touse'==1
+				qui sum `ATTs' [iweight = `weight'] if `period_s'==`si' & `touse'==1,meanonly
 				if r(mean)!=.{
 					post `sim2' (`si') (r(mean))
 				}
@@ -751,7 +775,7 @@ if("`wald'"!=""){
 postclose `sim_wald'
 
 qui use `results_wald',clear
-qui sum SimuF
+qui sum SimuF,meanonly
 qui count if SimuF>`F_stat'
 local larger=r(N)
 local WaldF=`F_stat'
@@ -775,16 +799,16 @@ if("`se'"=="" & "`placeboTest'"=="" & "`equiTest'"==""){
 
 	qui  egen max_atts=max(atts)
 	qui  egen max_N=max(s_N)
-	qui sum max_N
+	qui sum max_N,meanonly
 	local max_N=r(mean)
 	local axis2_up=4*`max_N'
-	qui sum max_atts
+	qui sum max_atts,meanonly
 	local max_atts=1.2*r(mean)
 	if `max_atts'<0 {
 		local max_atts=0
 	}
 	qui  egen min_atts=min(atts)
-	qui sum min_atts
+	qui sum min_atts,meanonly
 	local min_atts=1.2*r(mean)
 	if `min_atts'>0 {
 		local min_atts=0
@@ -843,16 +867,16 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"==""){
 	local CIlevel=100*(1-`alpha')
 	qui  egen max_atts=max(att_ub)
 	qui  egen max_N=max(s_N)
-	qui sum max_N
+	qui sum max_N,meanonly
 	local max_N=r(mean)
 	local axis2_up=4*`max_N'
-	qui sum max_atts
+	qui sum max_atts,meanonly
 	local max_atts=1.2*r(mean)
 	if `max_atts'<0 {
 	local max_atts=0
 	}
 	qui  egen min_atts=min(att_lb)
-	qui sum min_atts
+	qui sum min_atts,meanonly
 	local min_atts=1.2*r(mean)
 	if `min_atts'>0 {
 		local min_atts=0
@@ -907,7 +931,7 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"==""){
 if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"!=""){
 	di as txt "{hline}"	
 	di as txt "Equivalence Test"
-	qui reg `varlist' `cov' i.`newid' i.`newtime' if `treat'==0 & `touse'==1							   
+	qui reg `varlist' `cov' i.`newid' i.`newtime' [iweight = `weight'] if `treat'==0 & `touse'==1							   
 	local ebound= 0.36*e(rmse)
 	
 	/* Etest is an one-side test*/
@@ -923,7 +947,7 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"!=""){
 	qui use `results2',clear
 	local et_flag=0
 	forvalue s=`min_s'/`max_s' {
-		qui sum ATTs if s==`s'
+		qui sum ATTs if s==`s',meanonly
 		if r(N)<1 {
 			continue
 		}
@@ -952,7 +976,7 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"!=""){
 	qui drop if s>`offperiod'
 	qui tsset s
 	qui  egen max_atts=max(att_ub) if s<=0
-	qui sum max_atts
+	qui sum max_atts,meanonly
 	qui gen yub=r(mean)
 	local max_atts=2*r(mean)
 	if `max_atts'<0 {
@@ -962,7 +986,7 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"!=""){
 		local max_atts=`ebound'*2
 	}
 	qui  egen min_atts=min(att_lb) if s<=0
-	qui sum min_atts
+	qui sum min_atts,meanonly
 	qui gen ylb=r(mean)
 	local min_atts=2*r(mean)
 	if `min_atts'>0 {
@@ -972,7 +996,7 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"!=""){
 		local min_atts=-`ebound'*2
 	}
 	qui  egen max_N=max(s_N)
-	qui sum max_N
+	qui sum max_N,meanonly
 	local max_N=r(mean)
 	local axis2_up=8*`max_N'
 	local CIlevel=100*(1-`alpha')
@@ -1023,7 +1047,8 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"!=""){
 //draw plot3
 if("`placeboTest'"!="" & "`se'"!="" & "`equiTest'"==""){
 
-	placebo_Test `varlist',treat(`treat') unit(`newid') time(`newtime') cov(`cov') method("`method'") ///
+	placebo_Test `varlist',treat(`treat') unit(`newid') time(`newtime') ///
+	cov(`cov') method("`method'") weight(`weight') ///
 	force("`force'") degree(`degree') nknots(`nknots') r(`r') lambda(`lambda') alpha(`alpha') vartype("`vartype'") ///
 	nboots(`nboots') tol(`tol') maxiterations(`maxiterations') seed(`seed') minT0(`minT0') maxmissing(`maxmissing') ///
 	preperiod(`preperiod') offperiod(`offperiod') placeboperiod(`placeboperiod') xlabel(`xlabel') ylabel(`ylabel') title(`title') saving(`saving')
@@ -1527,6 +1552,7 @@ syntax varlist(min=1 max=1), treat(varlist min=1 max=1) ///
 						     method(string) ///
 							 force(string) ///
 							[ cov(varlist) ///
+							  weight(varlist max=1) ///
 							  cvtreat ///
 							  cvnobs(integer 3) ///
 							  kfold(integer 10) ///
@@ -1555,6 +1581,7 @@ tempfile results final_results final_results2
 
 gen `validation'=0
 sort `newid' `time'
+
 mata: val_gen("`treat'", "`newid'", "`newtime'", "`touse'", ///
 `kfold',`cvnobs',"`validation'",`seed')
 
@@ -1584,7 +1611,7 @@ if("`method'"=="ife" | "`method'"=="both"){
 				}
 
 				qui gen `spe'=(`varlist'-`counter')^2 if `validation'==`i' & `touse'==1
-				qui sum `spe' if `validation'==`i' & `touse'==1
+				qui sum `spe' [iweight=`weight'] if `validation'==`i' & `touse'==1,meanonly
 				if r(N)!=0 {
 					post `sim' (r(N)) (r(mean))
 				}
@@ -1595,8 +1622,8 @@ if("`method'"=="ife" | "`method'"=="both"){
 		preserve
 		use `results',clear
 		tempvar weight_mean
-		 egen `weight_mean'=wtmean(spe),weight(N)
-		qui sum `weight_mean'
+		egen `weight_mean'=wtmean(spe),weight(N)
+		qui sum `weight_mean',meanonly
 		post `final_sim' (0) (r(mean))
 		local mspe = string(round(r(mean),.001))
 		di as txt "fe r=0 force=`force' mspe=`mspe'"
@@ -1620,7 +1647,7 @@ if("`method'"=="ife" | "`method'"=="both"){
 			}
 				
 			qui gen `spe'=(`varlist'-`counter')^2 if `validation'==`i' & `touse'==1
-			qui sum `spe' if `validation'==`i' & `touse'==1
+			qui sum `spe' [iweight=`weight'] if `validation'==`i' & `touse'==1,meanonly
 
 			if r(N)!=0 {
 				post `sim' (r(N)) (r(mean))
@@ -1636,7 +1663,7 @@ if("`method'"=="ife" | "`method'"=="both"){
 		use `results',clear
 		tempvar weight_mean
 		 egen `weight_mean'=wtmean(spe),weight(N)
-		qui sum `weight_mean'
+		qui sum `weight_mean',meanonly
 		local mspe = string(round(r(mean),.001))
 		post `final_sim' (`fnum') (r(mean))
 		di as txt "ife r=`fnum' force=`force' mspe=`mspe'"
@@ -1708,8 +1735,8 @@ if("`method'"=="mc" | "`method'"=="both"){
 				continue
 			}
 
-			qui gen `spe'=(`varlist'-`counter')^2 if `validation'==`i' & `touse'==1
-			qui sum `spe' if `validation'==`i' & `touse'==1
+			qui gen `spe'=(`varlist'-`counter')^2  if `validation'==`i' & `touse'==1
+			qui sum `spe' [iweight=`weight'] if `validation'==`i' & `touse'==1 ,meanonly
 			if r(N)!=0 {
 				post `sim' (r(N)) (r(mean))
 			}
@@ -1721,7 +1748,7 @@ if("`method'"=="mc" | "`method'"=="both"){
 		use `results',clear
 		tempvar weight_mean
 		 egen `weight_mean'=wtmean(spe),weight(N)
-		qui sum `weight_mean'
+		qui sum `weight_mean' ,meanonly
 		post `final_sim2' (`lambda_grid') (r(mean))
 		local mspe = string(round(r(mean),.001))
 		local lambda_print = string(round(`lambda_grid',.0001))
@@ -1750,7 +1777,7 @@ if("`method'"=="bspline"){
 			cov(`cov') method("bspline") nknots(`knot') force(`force')
 
 			qui gen `spe'=(`varlist'-`counter')^2 if `validation'==`i' & `touse'==1
-			qui sum `spe' if `validation'==`i' & `touse'==1
+			qui sum `spe' [iweight=`weight'] if `validation'==`i' & `touse'==1,meanonly
 			if r(N)!=0 {
 				post `sim' (r(N)) (r(mean))
 			}
@@ -1762,7 +1789,7 @@ if("`method'"=="bspline"){
 		use `results',clear
 		tempvar weight_mean
 		 egen `weight_mean'=wtmean(spe),weight(N)
-		qui sum `weight_mean'
+		qui sum `weight_mean',meanonly
 		post `final_sim' (`knot') (r(mean))
 		local mspe = string(round(r(mean),.001))
 		di as txt "bspline nknots=`knot' mspe=`mspe'"
@@ -1791,7 +1818,7 @@ if("`method'"=="polynomial"){
 			cov(`cov') method("polynomial") degree(`dg') force(`force')
 
 			qui gen `spe'=(`varlist'-`counter')^2 if `validation'==`i' & `touse'==1
-			qui sum `spe' if `validation'==`i' & `touse'==1
+			qui sum `spe' [iweight=`weight'] if `validation'==`i' & `touse'==1,meanonly
 			if r(N)!=0 {
 				post `sim' (r(N)) (r(mean))
 			}
@@ -1803,7 +1830,7 @@ if("`method'"=="polynomial"){
 		use `results',clear
 		tempvar weight_mean
 		 egen `weight_mean'=wtmean(spe),weight(N)
-		qui sum `weight_mean'
+		qui sum `weight_mean',meanonly
 		post `final_sim' (`dg') (r(mean))
 		local mspe = string(round(r(mean),.001))
 		di as txt "polynomial degree=`dg' mspe=`mspe'"
@@ -1820,10 +1847,10 @@ if("`method'"=="ife"){
 	mkmat r mspe, matrix(CV)
 	ereturn matrix CV = CV
 	sort mspe
-	qui sum mspe in 1
+	qui sum mspe in 1 ,meanonly
 	local min_mspe=r(mean)
 	ereturn scalar min_mspe=`min_mspe'
-	qui sum r in 1
+	qui sum r in 1 ,meanonly
 	local optimal_r=r(mean)
 	ereturn scalar optimal_parameter=`optimal_r'
 	if(`optimal_r'==0){
@@ -1840,10 +1867,10 @@ if("`method'"=="mc"){
 	mkmat lambda mspe, matrix(CV)
 	ereturn matrix CV = CV
 	sort mspe
-	qui sum mspe in 1
+	qui sum mspe in 1,meanonly
 	local min_mspe=r(mean)
 	ereturn scalar min_mspe=`min_mspe'
-	qui sum lambda in 1
+	qui sum lambda in 1,meanonly
 	local optimal_lambda=string(round(r(mean),.001))
 	ereturn scalar optimal_parameter=`optimal_lambda'
 	ereturn scalar method = 2
@@ -1855,10 +1882,10 @@ if("`method'"=="bspline"){
 	mkmat nknots mspe, matrix(CV)
 	ereturn matrix CV = CV
 	sort mspe
-	qui sum mspe in 1
+	qui sum mspe in 1,meanonly
 	local min_mspe=r(mean)
 	ereturn scalar min_mspe=`min_mspe'
-	qui sum nknots in 1
+	qui sum nknots in 1,meanonly
 	local optimal_nknots=string(round(r(mean),.001))
 	ereturn scalar optimal_parameter=`optimal_nknots'
 	ereturn scalar method = 3
@@ -1870,10 +1897,10 @@ if("`method'"=="polynomial"){
 	mkmat degree mspe, matrix(CV)
 	ereturn matrix CV = CV
 	sort mspe
-	qui sum mspe in 1
+	qui sum mspe in 1,meanonly
 	local min_mspe=r(mean)
 	ereturn scalar min_mspe=`min_mspe'
-	qui sum degree in 1
+	qui sum degree in 1,meanonly
 	local optimal_degree=r(mean)
 	ereturn scalar optimal_parameter=`optimal_degree'
 	ereturn scalar method = 4
@@ -1885,18 +1912,18 @@ if("`method'"=="both"){
 	mkmat r mspe, matrix(CV)
 	matrix CV1 = CV
 	sort mspe
-	qui sum mspe in 1
+	qui sum mspe in 1,meanonly
 	local min_mspe1=r(mean)
-	qui sum r in 1
+	qui sum r in 1,meanonly
 	local optimal_parameter1=r(mean)
 	
 	use `final_results2',clear
 	mkmat lambda mspe, matrix(CV)
 	matrix CV2 = CV
 	sort mspe
-	qui sum mspe in 1
+	qui sum mspe in 1,meanonly
 	local min_mspe2=r(mean)
-	qui sum lambda in 1
+	qui sum lambda in 1,meanonly
 	local optimal_parameter2=r(mean)
 	
 	if(`min_mspe1'<=`min_mspe2'){
@@ -1928,6 +1955,7 @@ syntax varlist(min=1 max=1) , Treat(varlist min=1 max=1) ///
 								  Unit(varlist min=1 max=1) ///
 								  Time(varlist min=1 max=1) ///
 								[ cov(varlist) ///
+								  weight(varlist max=1) ///
 								  force(string) ///
 								  degree(integer 3) ///
 								  nknots(integer 3) ///
@@ -1980,7 +2008,7 @@ qui replace `touse'=0 if `notreatnum'<`minT0'
 
 if(`maxmissing'>0){
 	bys `newid': egen `notmissingy'=count(`varlist')
-	qui sum `newtime'
+	qui sum `newtime',meanonly
 	local TT = r(max)-r(min)
 	qui gen `missingy'=`TT'-`notmissingy'
 	qui replace `touse'=0 if `missingy'>`maxmissing'
@@ -1995,12 +2023,12 @@ qui fect_counter `counter' `TE' `ATTs',outcome(`varlist') treat(`ptreat') unit(`
 method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol')  ///
 maxiterations(`maxiterations') lambda(`lambda')
 
-qui sum `TE' if `true_s'<=0 & `true_s'>-`lag' & `touse'==1
+qui sum `TE' [iweight = `weight'] if `true_s'<=0 & `true_s'>-`lag' & `touse'==1 ,meanonly
 local PlaceboATT=r(mean)
 
 forvalue s=`preperiod'/`offperiod' {
 
-	qui sum `TE' if `true_s'==`s' & `touse'==1
+	qui sum `TE' [iweight = `weight'] if `true_s'==`s' & `touse'==1 ,meanonly
 	
 	if r(N)==0{
 		di in red "No observations for s=`s'"
@@ -2043,14 +2071,14 @@ if("`vartype'"=="bootstrap"){
 		}
 			
 		/* ATT */
-		qui sum `TE' if `true_s'<=0 & `true_s'>-`lag' & `touse'==1
+		qui sum `TE' [iweight = `weight'] if `true_s'<=0 & `true_s'>-`lag' & `touse'==1,meanonly
 		if r(mean)!=.{
 			post `sim' (r(mean))
 		}
 			
 		/* ATTs */
 		forvalue si=`preperiod'/`offperiod' {
-			qui sum `ATTs' if `true_s'==`si' & `touse'==1
+			qui sum `ATTs' [iweight = `weight'] if `true_s'==`si' & `touse'==1,meanonly
 			if r(mean)!=.{
 				post `sim2' (`si') (r(mean))
 			}
@@ -2073,7 +2101,7 @@ if("`vartype'"=="jackknife"){
 	bys `newid':  egen `order_mean'=mean(`order')
 	sort `order_mean'
 	 egen `order_rank'=group(`order_mean')
-	qui sum `newid'
+	qui sum `newid',meanonly
 	local max_id=r(max)
 	forvalue i=1/`max_id'{
 		preserve
@@ -2090,14 +2118,14 @@ if("`vartype'"=="jackknife"){
 		}
 			
 		/* ATT */
-		qui sum `TE' if `true_s'<=0 & `true_s'>-`lag' & `touse'==1
+		qui sum `TE' [iweight = `weight'] if `true_s'<=0 & `true_s'>-`lag' & `touse'==1,meanonly
 		if r(mean)!=.{
 			post `sim' (r(mean))
 		}
 			
 		/* ATTs */
 		forvalue si=`preperiod'/`offperiod' {
-			qui sum `ATTs' if `true_s'==`si' & `touse'==1
+			qui sum `ATTs' [iweight = `weight'] if `true_s'==`si' & `touse'==1,meanonly
 			if r(mean)!=.{
 				post `sim2' (`si') (r(mean))
 			}
@@ -2228,16 +2256,16 @@ qui tsset s
 local CIlevel=100*(1-`alpha')
 qui  egen max_atts=max(att_ub)
 qui  egen max_N=max(s_N)
-qui sum max_N
+qui sum max_N,meanonly
 local max_N=r(mean)
 local axis2_up=4*`max_N'
-qui sum max_atts
+qui sum max_atts,meanonly
 local max_atts=1.2*r(mean)
 if `max_atts'<0 {
 	local max_atts=0
 }
 qui  egen min_atts=min(att_lb)
-qui sum min_atts
+qui sum min_atts,meanonly
 local min_atts=1.2*r(mean)
 if `min_atts'>0 {
 	local min_atts=0
@@ -2300,6 +2328,7 @@ syntax varlist(min=1 max=1) , Treat(varlist min=1 max=1) ///
 								  Time(varlist min=1 max=1) ///
 								  period_s(varlist min=1 max=1) ///
 								[ cov(varlist) ///
+								  weight(varlist max=1) ///
 								  force(string) ///
 								  degree(integer 3) ///
 								  nknots(integer 3) ///
@@ -2328,7 +2357,7 @@ method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree')
 maxiterations(`maxiterations') lambda(`lambda')
 
 sort `newid' `newtime'
-qui sum `TE' if `treat'==1
+qui sum `TE' [iweight = `weight'] if `treat'==1,meanonly
 local ATT=r(mean) //to save
 
 restore
@@ -2348,7 +2377,7 @@ forvalue i=1/`nboots'{
 	method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
 	maxiterations(`maxiterations') lambda(`lambda')
 	
-	qui sum `TE' if `permutreat'==1
+	qui sum `TE' [iweight = `weight'] if `permutreat'==1,meanonly
 	if r(mean)!=.{
 		post `sim_permu' (r(mean))
 	}
@@ -2363,7 +2392,7 @@ postclose `sim_permu'
 preserve
 qui use `results_permu',clear
 qui drop if ATT<`ATT'
-qui sum ATT
+qui sum ATT,meanonly
 local pvalue=r(N)/`nboots'
 ereturn scalar permutation_pvalue=`pvalue'
 local pvalue_print=string(round(`pvalue',.001))
@@ -2847,15 +2876,11 @@ void val_gen(string treat,
 			 real seed)
 {
 	real matrix panel_treat,x,panel_touse,groupid,slice_treat,slice_touse,index,targetindex
-	real scalar minid,maxid,mintime,maxtime,rownum,colnum,i,j,k,groupnum,colcut,mod,num_infold
+	real scalar rownum,colnum,i,j,k,groupnum,colcut,mod,num_infold
 	st_view(x=.,.,(unit,time,treat,touse))
 
-	minid=min(x[,1])
-	maxid=max(x[,1])
-	mintime=min(x[,2])
-	maxtime=max(x[,2])
-	rownum=maxid-minid+1
-	colnum=maxtime-mintime+1
+	rownum=rows(uniqrows(x[,1]))
+	colnum=rows(uniqrows(x[,2]))
 
 	panel_treat=x[,3]
 	panel_treat=rowshape(panel_treat,rownum)
@@ -2865,21 +2890,21 @@ void val_gen(string treat,
 	groupid=J(rownum,colnum,.)
 	groupnum=1
 
-	if(period>=colnum) {
+	if(period>=0.5*colnum) {
 		_error("CVnobs is too large.")
 	}
 
 	if(fold<=1) {
-		_error(0)
+		_error("Fold should be larger than 1.")
 	}
 
 	colcut=floor(colnum/period)
 
 	if(colcut*period==colnum){
-		mod=1
+		mod = 1
 	}
 	else{
-		mod=0
+		mod = 0
 	}
 
 	for(i=1;i<=rownum;i++) {
@@ -2905,7 +2930,7 @@ void val_gen(string treat,
 			for(k=(colcut*period+1);k<=colnum;k++) {
 				groupid[i,k]=groupnum
 			}
-		groupnum=groupnum+1
+			groupnum=groupnum+1
 		}
 	}
 

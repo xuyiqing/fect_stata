@@ -30,6 +30,7 @@
 {synopt:{opt unit(varlist)}} specifying the unit (group) indicator. {p_end}
 {synopt:{opt time(varlist)}} specifying the time indicator. {p_end}
 {synopt:{opt cov(varlist)}} specifying time-varying covariates. {p_end}
+{synopt:{opt weight(varlist)}} specifying weight indicator, will be used to adjust various treatment effects. {p_end}
 {synopt:{opt force(string)}} a string indicating whether unit or time fixed effects will be imposed. Must be one of the following, {opt two-way} (default), {opt unit}, {opt time} and {opt none}.{p_end}
 {synopt:{opt degree(integer)}} an integer specifying the order of the polynomial trend term, should be larger than 1, default to 3. {p_end}
 {synopt:{opt nknots(integer)}} an integer specifying the number of knots used for a restricted cubic spline, must be between 3 and 7, default to 3.{p_end}
