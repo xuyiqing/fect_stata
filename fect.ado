@@ -1236,22 +1236,22 @@ qui gen `norm_y'=`outcome'
 if("`method'"=="fe"){
 	tempvar FE1 FE2 yearFE unitFE counterfactual
 	if("`force'"=="two-way"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime') ///
-		savefe dof(none)   
+		cap qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime') ///
+		savefe dof(none)  keepsingletons
 	}
 	if("`force'"=="unit"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid') savefe ///
-		dof(none)   
+		cap qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid') savefe ///
+		dof(none)   keepsingletons
 		qui gen `FE2'=0
 	}
 	if("`force'"=="time"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime') savefe ///
-		dof(none)   
+		cap qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime') savefe ///
+		dof(none)   keepsingletons
 		qui gen `FE1'=0
 	}
 	if("`force'"=="none"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,noabsorb ///
-		dof(none)   
+		cap qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,noabsorb ///
+		dof(none)  keepsingletons 
 		qui gen `FE2'=0
 		qui gen `FE1'=0
 	}
@@ -1295,22 +1295,22 @@ if("`method'"=="bspline"){
 	}
 	
 	if("`force'"=="two-way"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime' `FE'=i.`newid'#c.(`trend_all')) savefe ///
-		dof(none)   
+		cap qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime' `FE'=i.`newid'#c.(`trend_all')) savefe ///
+		dof(none)   keepsingletons
 	}
 	if("`force'"=="unit"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE'=i.`newid'#c.(`trend_all')) savefe ///
-		dof(none)   
+		cap qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE'=i.`newid'#c.(`trend_all')) savefe ///
+		dof(none)   keepsingletons
 		qui gen `FE2'=0
 	}
 	if("`force'"=="time"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime' `FE'=i.`newid'#c.(`trend_all')) savefe ///
-		dof(none)   
+		cap qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime' `FE'=i.`newid'#c.(`trend_all')) savefe ///
+		dof(none) keepsingletons  
 		qui gen `FE1'=0
 	}
 	if("`force'"=="none"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE'=i.`newid'#c.(`trend_all')) savefe ///
-		dof(none)   
+		cap qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE'=i.`newid'#c.(`trend_all')) savefe ///
+		dof(none)   keepsingletons
 		qui gen `FE2'=0
 		qui gen `FE1'=0
 	}
@@ -1371,22 +1371,22 @@ if("`method'"=="polynomial"){
 	
 	
 	if("`force'"=="two-way"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime' `FE'=i.`newid'#c.(`trend_all')) savefe ///
-		dof(none)   
+		cap qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime' `FE'=i.`newid'#c.(`trend_all')) savefe ///
+		dof(none)   keepsingletons
 	}
 	if("`force'"=="unit"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE'=i.`newid'#c.(`trend_all')) savefe ///
-		dof(none)   
+		cap qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE'=i.`newid'#c.(`trend_all')) savefe ///
+		dof(none)   keepsingletons
 		qui gen `FE2'=0
 	}
 	if("`force'"=="time"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime' `FE'=i.`newid'#c.(`trend_all')) savefe ///
-		dof(none)   
+		cap qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime' `FE'=i.`newid'#c.(`trend_all')) savefe ///
+		dof(none)   keepsingletons
 		qui gen `FE1'=0
 	}
 	if("`force'"=="none"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE'=i.`newid'#c.(`trend_all')) savefe ///
-		dof(none)   
+		cap qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE'=i.`newid'#c.(`trend_all')) savefe ///
+		dof(none)   keepsingletons
 		qui gen `FE2'=0
 		qui gen `FE1'=0
 	}
@@ -1439,22 +1439,22 @@ if("`method'"=="polynomial"){
 if("`method'"=="ife"){
 	tempvar FE1 FE2 yearFE unitFE cons counterfactual p_treat
 	if("`force'"=="two-way"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime') savefe ///
-		dof(none)   
+		cap qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime') savefe ///
+		dof(none)   keepsingletons
 	}
 	if("`force'"=="unit"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid') savefe ///
-		dof(none)   
+		cap qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid') savefe ///
+		dof(none)   keepsingletons
 		qui gen `FE2'=0
 	}
 	if("`force'"=="time"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime') savefe ///
-		dof(none)   
+		cap qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime') savefe ///
+		dof(none)   keepsingletons
 		qui gen `FE1'=0
 	}
 	if("`force'"=="none"){
-		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,noabsorb ///
-		dof(none)   
+		cap qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,noabsorb ///
+		dof(none)   keepsingletons
 		qui gen `FE2'=0
 		qui gen `FE1'=0
 	}
@@ -1486,22 +1486,22 @@ if("`method'"=="mc"){
 	tempvar y FE1 FE2 yearFE unitFE cons counterfactual p_treat
 	qui gen `y'=`outcome'
 	if("`force'"=="two-way"){
-		qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime') savefe ///
-		dof(none)   
+		cap qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime') savefe ///
+		dof(none)   keepsingletons
 	}
 	if("`force'"=="unit"){
-		qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid') savefe ///
-		dof(none)   
+		cap qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid') savefe ///
+		dof(none)   keepsingletons
 		qui gen `FE2'=0
 	}
 	if("`force'"=="time"){
-		qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime') savefe ///
-		dof(none)   
+		cap qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime') savefe ///
+		dof(none)  keepsingletons 
 		qui gen `FE1'=0
 	}
 	if("`force'"=="none"){
-		qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,noabsorb ///
-		dof(none)   
+		cap qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,noabsorb ///
+		dof(none) keepsingletons  
 		qui gen `FE2'=0
 		qui gen `FE1'=0
 	}
@@ -1690,20 +1690,20 @@ if("`method'"=="mc" | "`method'"=="both"){
 	//get lambda list
 	tempvar FE1 FE2 e
 	if("`force'"=="two-way"){
-		qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, ab(`FE1'=`newid' `FE2'=`newtime') resid ///
-		dof(none)   
+		cap qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, ab(`FE1'=`newid' `FE2'=`newtime') resid ///
+		dof(none)   keepsingletons
 	}
 	if("`force'"=="unit"){
-		qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, ab(`FE1'=`newid') resid ///
-		dof(none)   
+		cap qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, ab(`FE1'=`newid') resid ///
+		dof(none) keepsingletons  
 	}
 	if("`force'"=="unit"){
-		qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, ab(`FE2'=`newtime') resid ///
-		dof(none)   
+		cap qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, ab(`FE2'=`newtime') resid ///
+		dof(none)   keepsingletons
 	}
 	if("`force'"=="none"){
-		qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, noabsorb resid ///
-		dof(none)   
+		cap qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, noabsorb resid ///
+		dof(none)   keepsingletons
 	}
 		
 	qui predict `e',residual
