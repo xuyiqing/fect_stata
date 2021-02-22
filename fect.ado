@@ -285,7 +285,7 @@ if(`maxmissing'>0){
 }
 qui drop if `touse'==0
 
-if(r(N_drop)>0){
+if(r(N)>0){
 	di as res "Some treated units has too few pre-treatment periods; they are removed automatically."
 }
 /* Threshold of touse END*/
