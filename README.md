@@ -30,10 +30,12 @@ If the above link is unaccessible for your device, use the "Download Zip" button
 . net install fect, from(full_local_path_to_files) replace
 ```
 
-Installation
+How to use
 =======
 
  [Examples](http://yiqingxu.org/software/fect/stata/fect_md.html)
+ 
+ ---
 
 **Reference:** "A Practical Guide to Counterfactual Estimators for Causal Inference with Time-Series Cross-Sectional Data" Available at SSRN: https://papers.ssrn.com/abstract=3555463
 
