@@ -33,7 +33,7 @@ If the above link is unaccessible for your device, use the "Download Zip" button
 How to use
 =======
 
- [Examples](http://yiqingxu.org/software/fect/stata/fect_md.html)
+ [Examples](https://yiqingxu.org/packages/fect/stata/fect_md.html)
  
  ---
 
