@@ -6,7 +6,7 @@ cap program drop permutation
 cap program drop _gwtmean
 
 program define fect,eclass
-version 15
+version 14
 
 syntax varlist(min=1 max=1) [if], Treat(varlist min=1 max=1) ///
 								  Unit(varlist min=1 max=1) ///
