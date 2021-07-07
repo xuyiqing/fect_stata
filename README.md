@@ -17,7 +17,7 @@ As a pre-requisite, the `reghdfe` package needs to be installed.
 . ssc install reghdfe, replace
 ```
 
-To install the `fect` package with Stata v13 or greater
+To install the `fect` package with Stata v14 or greater
 
 ```Stata
 . cap ado uninstall fect //in-case already installed
