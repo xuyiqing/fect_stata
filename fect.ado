@@ -2,50 +2,55 @@ cap program drop fect
 cap program drop cross_validation
 cap program drop fect_counter
 cap program drop placebo_Test
+cap program drop carryover_Test
 cap program drop permutation
 cap program drop _gwtmean
 
 program define fect,eclass
-version 15
+version 15.1
 
 syntax varlist(min=1 max=1) [if], Treat(varlist min=1 max=1) ///
 								  Unit(varlist min=1 max=1) ///
 								  Time(varlist min=1 max=1) ///
-								[ cov(varlist) ///
-								  weight(varlist max=1) ///
-								  force(string) ///
-								  degree(integer 3) ///
-								  nknots(integer 3) ///
-								  r(integer 3) ///
-								  lambda(numlist) ///
-								  nlambda(integer 10) ///
-								  cv ///
-								  kfolds(integer 10)  ///
-								  cvtreat ///
-								  cvnobs(integer 3) ///
-								  method(string) ///
-								  alpha(real 0.05) ///
-								  se ///
-								  vartype(string) ///
-								  nboots(integer 200) ///
-								  tol(real 1e-5) ///
-								  maxiterations(integer 2000) ///
-								  seed(integer 100) ///
-								  minT0(integer 5) ///
-								  maxmissing(integer 0) ///
-								  preperiod(integer -999999) ///
-								  offperiod(integer 999999) ///
-								  wald ///
-								  placeboTest ///
-								  placeboperiod(integer 3) ///
-								  equiTest ///
-								  permutation ///
-								  Title(string) ///
-								  YLABel(string) ///
-								  XLABel(string) ///
-								  SAVing(string) ///
-								  counterfactual ///
-								]
+							[ cov(varlist) ///
+							weight(varlist max=1) ///
+							  force(string) ///
+							  degree(integer 3) ///
+							  nknots(integer 3) ///
+							  r(integer 4) ///
+							  lambda(numlist) ///
+							  nlambda(integer 10) ///
+							  cv ///
+							  kfolds(integer 10)  ///
+							  cvtreat ///
+							  cvnobs(integer 3) ///
+							  method(string) ///
+							  exit ///
+							  alpha(real 0.05) ///
+							  se ///
+							  vartype(string) ///
+							  nboots(integer 200) ///
+							  tol(real 1e-5) ///
+							  maxiterations(integer 2000) ///
+							  seed(integer 100) ///
+							  minT0(integer 5) ///
+							  maxmissing(integer 0) ///
+							  preperiod(integer -999999) ///
+							  offperiod(integer 999999) ///
+							  proportion(real 0.3) ///
+							  wald ///
+							  placeboTest ///
+							  placeboperiod(integer 3) ///
+							  carryoverTest ///
+							  carryoverperiod(integer 3) ///
+							  equiTest ///
+							  permutation ///
+							  title(string) ///
+							  ylabel(string) ///
+							  xlabel(string) ///
+							  saving(string) ///
+							  counterfactual ///
+							]
 
 set trace off
 
@@ -62,12 +67,18 @@ if _rc {
 	exit 111
 }
 
-//cap which gtools.ado
-//if _rc {/
-//	di as error "gtools.ado required: {stata ssc install gtools,replace}"/
-//	exit 111
-//}
 
+
+/* tokenize `varlist'
+local y `1'
+local treat `2'
+macro shift
+macro shift
+local cov `*'
+local varlist `y'
+
+local unit `I'
+local time `T' */
 
 /* treat */
 qui sum `treat',meanonly
@@ -198,8 +209,15 @@ if(`preperiod'>0){
     exit
 }
 
+/* offperiod */
 if(`offperiod'<0){
 	dis as err "offperiod() must be an integer no less than 0"
+    exit
+}
+
+/* Proportion */
+if(`proportion'>=1 | `proportion'<0){
+	dis as err "proportion() must be larger than 0 and less than 1"
     exit
 }
 
@@ -209,15 +227,22 @@ if(`placeboperiod'<1) {
     exit
 }
 
+/* carryoverperiod*/
+if(`carryoverperiod'<1) {
+    dis as err "carryoverperiod() must be an integer not less than 1"
+    exit
+}
+
 /* saving */
 if (strpos("`saving'",".") == 0) {
     local saving = "`saving'.png"
 }  
 
-/* EquiTest/PlaceboTest */
+/* EquiTest/PlaceboTest/CarryoverTest */
 if("`se'"==""){
 	local equiTest=""
 	local placeboTest=""
+	local carryoverTest=""
 }
 
 ************************************Input Check End
@@ -230,8 +255,8 @@ qui keep `varlist' `treat' `unit' `time' `cov' `weight'
 tempvar touse 
 mark `touse' `if'
 qui drop if `touse'==0
-qui cap drop if `unit' == .
-qui cap drop if `time' == .
+qui drop if `unit' == .
+qui drop if `time' == .
 
 tempvar newid newtime
 qui  egen `newid'=group(`unit')
@@ -264,7 +289,7 @@ else{
 	di as res "Balanced Panel Data"
 }							   
 sort `newid' `newtime'
-qui mata:treat_fill("`treat'","`newid'","`newtime'") //fill the missing values in Treat
+qui mata: treat_fill("`treat'","`newid'","`newtime'") //fill the missing values in Treat
 tempvar id
 /* Check if the dataset is strongly balanced END */
 
@@ -302,9 +327,25 @@ qui rename 	`newtime2' `newtime'
 qui tsset `newid' `newtime'
 
 
-/* period index */
-tempvar period_s
-qui mata:gen_s("`treat'","`newid'","`newtime'","`period_s'")
+/* period index: enter and exit*/
+tempvar t_on
+qui mata: gen_s("`treat'","`newid'","`newtime'","`t_on'")
+
+tempvar t_off treat_rev
+qui gen `treat_rev' = 1 - `treat'
+qui mata: gen_s("`treat_rev'","`newid'","`newtime'","`t_off'")
+
+qui sum `t_off'
+if(r(N)==0){
+	local hasrev = 0
+}
+else{
+	local hasrev = 1
+}
+
+if(`hasrev'==1){
+	di as res "Treatment has reversals."
+}
 
 
 /* Cross-Validation */
@@ -321,7 +362,7 @@ if((`lambda_size'>1 | `lambda_size'==0)  & "`method'"=="mc"){
 }
 
 if(`do_cv'==1){
-	cross_validation `varlist',treat(`treat') unit(`newid') time(`newtime') method(`method') period_s(`period_s') ///
+	cross_validation `varlist',treat(`treat') unit(`newid') time(`newtime') method(`method') t_on(`t_on') t_off(`t_off') ///
 	weight(`weight') force(`force') cov(`cov') `cvtreat' cvnobs(`cvnobs') ///
 	kfold(`kfold') nknots(`nknots') degree(`degree') ///
 	r(`r') tol(`tol') maxiterations(`maxiterations') nlambda(`nlambda') lambda(`lambda') seed(`seed')
@@ -367,14 +408,16 @@ if("`method'"!="mc"){
 
 /* Estimate ATT & ATTs */
 preserve
-tempvar counter TE S ATTs
+tempvar counter TE S ATTs ATTs_off
 
-qui fect_counter `counter' `TE' `ATTs',outcome(`varlist') treat(`treat') unit(`newid') time(`newtime') period_s(`period_s') ///
-method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
+qui fect_counter `counter' `TE' `ATTs' `ATTs_off',outcome(`varlist') ///
+treat(`treat') unit(`newid') time(`newtime') t_on(`t_on') ///
+t_off(`t_off') method("`method'") force("`force'") ///
+cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
 maxiterations(`maxiterations') lambda(`lambda') 
 
 local judge_converge=e(converge)
-if `judge_converge'==0{
+if `judge_converge'==0 {
 	dis as err "`method' can't converge."
     exit
 }
@@ -391,9 +434,9 @@ local cons_output = e(cons)
 if("`counterfactual'"!=""){
 	tempfile counter_out
 
-	cap gen time_relative_to_treatment=`period_s'
+	cap gen time_relative_to_treatment=`t_on'
 	if _rc!=0 {
-		cap replace time_relative_to_treatment=`period_s'
+		cap replace time_relative_to_treatment=`t_on'
 	}
 	cap gen counterfactual_of_response=`counter'
 	if _rc!=0 {
@@ -407,7 +450,7 @@ if("`counterfactual'"!=""){
 
 }
 
-qui sum `period_s',meanonly
+qui sum `t_on',meanonly
 local min_s=r(min)
 local max_s=r(max)
 
@@ -435,11 +478,10 @@ local N_alltreat=r(N) //to save
 tempname sim_nose
 tempfile results_nose
 qui postfile `sim_nose' s atts s_N using `results_nose',replace
-
 forvalue s=`min_s'/`max_s' {
-	qui sum `ATTs' [iweight = `weight'] if `period_s'==`s' & `touse'==1,meanonly
+	qui sum `ATTs' [iweight = `weight'] if `t_on'==`s' & `touse'==1,meanonly
 	if r(N)==0{
-		di in red "No observations for s=`s'"
+		//di in red "No observations for s=`s'"
 		local s_index=`s'-`min_s'
 		local att`s_index' = .
 		local N`s_index'=0
@@ -451,31 +493,71 @@ forvalue s=`min_s'/`max_s' {
 	}
 	post `sim_nose' (`s') (`att`s_index'') (`N`s_index'')
 }
-
 postclose `sim_nose'
+
+if(`hasrev'==1){
+	qui sum `t_off',meanonly
+	local min_s_off=r(min)
+	local max_s_off=r(max)
+
+	if(`preperiod'<`min_s_off'){
+		local preperiod_off=`min_s_off'
+	}
+	else{
+		local preperiod_off=`preperiod'
+	}
+
+	if(`offperiod'>`max_s_off'){
+		local offperiod_off=`max_s_off'
+	}
+	else{
+		local offperiod_off=`offperiod'
+	}
+
+	tempname sim_nose_off
+	tempfile results_nose_off
+	qui postfile `sim_nose_off' s atts s_N using `results_nose_off',replace
+	forvalue s=`min_s_off'/`max_s_off' {
+		qui sum `ATTs_off' [iweight = `weight'] if `t_off'==`s' & `touse'==1,meanonly
+		if r(N)==0{
+			//di in red "No observations for s=`s'"
+			local s_index=`s'-`min_s_off'
+			local att_off`s_index' = .
+			local N_off`s_index'=0
+		}
+		else{
+			local s_index=`s'-`min_s_off'
+			local att_off`s_index' = r(mean)
+			local N_off`s_index'=r(N)
+		}
+		post `sim_nose_off' (`s') (`att_off`s_index'') (`N_off`s_index'')
+	}
+	postclose `sim_nose_off'
+
+}
 
 restore
 
 /* Permutation Test */
 if("`permutation'"!=""){
+	permutation `varlist', treat(`treat') unit(`unit') time(`time') ///
+	t_on(`t_on') cov(`cov') weight(`weight') ///
+	force(`force') degree(`degree') nknots(`nknots') ///
+	r(`r') lambda(`lambda') method(`method') nboots(`nboots') ///
+	tol(`tol') maxiterations(`maxiterations') 
 
-permutation `varlist', treat(`treat') unit(`unit') time(`time') ///
-period_s(`period_s') cov(`cov') weight(`weight') ///
- force(`force') degree(`degree') nknots(`nknots') ///
-r(`r') lambda(`lambda') method(`method') nboots(`nboots') ///
-tol(`tol') maxiterations(`maxiterations') 
-
-local permutation_pvalue=e(permutation_pvalue)
+	local permutation_pvalue=e(permutation_pvalue)
 }
 
 
 
 /* Bootstrap/Jackknife */
-if("`se'"!="" & "`placeboTest'"==""){ 
-	tempname sim sim2 sim3
-	tempfile results results2 results3
+if("`se'"!="" & "`placeboTest'"=="" & "`carryoverTest'"==""){ 
+	tempname sim sim2 sim2_off sim3
+	tempfile results results2 results2_off results3
 	qui postfile `sim' ATT using `results',replace
 	qui postfile `sim2' s ATTs using `results2',replace
+	qui postfile `sim2_off' s ATTs using `results2_off',replace
 	qui postfile `sim3' coef index using `results3',replace
 	
 	if("`vartype'"=="bootstrap"){
@@ -483,12 +565,13 @@ if("`se'"!="" & "`placeboTest'"==""){
 		di as txt "Bootstrapping..."
 		forvalue i=1/`nboots'{
 			preserve
-			tempvar counter TE S ATTs
+			tempvar counter TE S ATTs ATTs_off
 			bsample, cluster(`newid') idcluster(boot_id) 
 			drop `newid'
 			rename boot_id `newid'
 			
-			capture qui fect_counter `counter' `TE' `ATTs',outcome(`varlist') treat(`treat') unit(`newid') time(`newtime') period_s(`period_s') ///
+			capture qui fect_counter `counter' `TE' `ATTs' `ATTs_off',outcome(`varlist') treat(`treat') unit(`newid') time(`newtime') ///
+			t_on(`t_on') t_off(`t_off') ///
 			method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
 			maxiterations(`maxiterations') lambda(`lambda')
 			
@@ -517,9 +600,17 @@ if("`se'"!="" & "`placeboTest'"==""){
 
 			/* ATTs */
 			forvalue si=`min_s'/`max_s' {
-				qui sum `ATTs' [iweight = `weight'] if `period_s'==`si' & `touse'==1,meanonly
+				qui sum `ATTs' [iweight = `weight'] if `t_on'==`si' & `touse'==1,meanonly
 				if r(mean)!=.{
 					post `sim2' (`si') (r(mean))
+				}
+			}
+
+			/* ATTs */
+			forvalue si=`min_s_off'/`max_s_off' {
+				qui sum `ATTs_off' [iweight = `weight'] if `t_off'==`si' & `touse'==1,meanonly
+				if r(mean)!=.{
+					post `sim2_off' (`si') (r(mean))
 				}
 			}
 			
@@ -529,7 +620,8 @@ if("`se'"!="" & "`placeboTest'"==""){
 			restore
 		}
 		postclose `sim'
-		postclose `sim2'
+		postclose `sim2'   // all ATT_m calculate covariance F test. write meta. meta calculate covariance matrix
+		postclose `sim2_off'
 		postclose `sim3'
 	}
 	
@@ -540,15 +632,16 @@ if("`se'"!="" & "`placeboTest'"==""){
 		bys `newid': gen `order'=runiform()
 		bys `newid':  egen `order_mean'=mean(`order')
 		sort `order_mean'
-		 egen `order_rank'=group(`order_mean')
+		egen `order_rank'=group(`order_mean')
 		qui sum `newid',meanonly
 		local max_id=r(max)
 		forvalue i=1/`max_id'{
 			preserve
-			tempvar counter TE S ATTs
+			tempvar counter TE S ATTs ATTs_off
 			qui drop if `order_rank'==`i'
 			
-			capture qui fect_counter `counter' `TE' `ATTs',outcome(`varlist') treat(`treat') unit(`newid') time(`newtime') period_s(`period_s')  ///
+			capture qui fect_counter `counter' `TE' `ATTs' `ATTs_off',outcome(`varlist') treat(`treat') unit(`newid') time(`newtime') ///
+			t_on(`t_on') t_off(`t_off')  ///
 			method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
 			maxiterations(`maxiterations') lambda(`lambda')
 			
@@ -578,9 +671,16 @@ if("`se'"!="" & "`placeboTest'"==""){
 		
 			/* ATTs */
 			forvalue si=`min_s'/`max_s' {
-				qui sum `ATTs' [iweight = `weight'] if `period_s'==`si' & `touse'==1,meanonly
+				qui sum `ATTs' [iweight = `weight'] if `t_on'==`si' & `touse'==1,meanonly
 				if r(mean)!=.{
 					post `sim2' (`si') (r(mean))
+				}
+			}
+
+			forvalue si=`min_s_off'/`max_s_off' {
+				qui sum `ATTs' [iweight = `weight'] if `t_off'==`si' & `touse'==1,meanonly
+				if r(mean)!=.{
+					post `sim2_off' (`si') (r(mean))
 				}
 			}
 			//di as txt "Jackknife: Round `i' Finished"
@@ -588,6 +688,7 @@ if("`se'"!="" & "`placeboTest'"==""){
 		}
 		postclose `sim'
 		postclose `sim2'
+		postclose `sim2_off'
 		postclose `sim3'
 	}
 	
@@ -631,6 +732,28 @@ if("`se'"!="" & "`placeboTest'"==""){
 			}
 		}
 		postclose `sim_plot'
+
+		if(`hasrev'==1){
+			//ATTs_off
+			tempname sim_plot_off
+			tempfile results_plot_off
+			qui postfile `sim_plot_off' s atts attsd att_lb att_ub s_N using `results_plot_off',replace
+			qui use `results2_off',clear
+			forvalue s=`min_s_off'/`max_s_off' {
+				qui sum ATTs if s==`s'
+				if r(N)<1 {
+					continue
+				}
+				local attsd_temp=r(sd)
+				qui _pctile ATTs if s==`s',p(`twosidel' ,`twosideu')
+				matrix `ci'=(r(r1),r(r2))
+				local s_index=`s'-`min_s_off'
+				if("`vartype'"=="bootstrap"){
+					post `sim_plot_off' (`s') (`att_off`s_index'') (`attsd_temp') (`ci'[1,1]) (`ci'[1,2]) (`N_off`s_index'')
+				}
+			}
+			postclose `sim_plot_off'			
+		}
 
 		//coef
 		tempname sim_coef coef_ci
@@ -682,7 +805,6 @@ if("`se'"!="" & "`placeboTest'"==""){
 		tempname sim_plot
 		tempfile results_plot
 		qui postfile `sim_plot' s atts attsd att_lb att_ub s_N using `results_plot',replace
-	
 		qui use `results2',clear
 		forvalue s=`min_s'/`max_s' {
 			qui sum ATTs if s==`s'
@@ -699,8 +821,32 @@ if("`se'"!="" & "`placeboTest'"==""){
 				post `sim_plot' (`s') (`att`s_index'') (`attsd_temp') (`lb_jack') (`ub_jack') (`N`s_index'')
 			}
 		}
-		
 		postclose `sim_plot'
+
+		if(`hasrev'==1){
+			//ATTs_off
+			tempname sim_plot_off
+			tempfile results_plot_off
+			qui postfile `sim_plot_off' s atts attsd att_lb att_ub s_N using `results_plot_off',replace
+			qui use `results2_off',clear
+			forvalue s=`min_s_off'/`max_s_off' {
+				qui sum ATTs if s==`s'
+				if r(N)<1 {
+					continue
+				}
+				local attsd_temp=r(sd)*sqrt(`max_id')
+				qui _pctile ATTs if s==`s',p(`twosidel' ,`twosideu')
+				matrix `ci'=(r(r1),r(r2))
+				local s_index=`s'-`min_s_off'
+				if("`vartype'"=="jackknife"){
+					local tvalue = invttail(`max_id'-1,`alpha'/2)
+					local ub_jack = `att_off`s_index''+`tvalue'*`attsd_temp'
+					local lb_jack = `att_off`s_index''-`tvalue'*`attsd_temp'
+					post `sim_plot_off' (`s') (`att_off`s_index'') (`attsd_temp') (`lb_jack') (`ub_jack') (`N_off`s_index'')
+				}
+			}
+			postclose `sim_plot_off'			
+		}
 
 		//coef
 		tempname sim_coef coef_ci
@@ -736,7 +882,7 @@ if("`se'"!="" & "`placeboTest'"==""){
 }
 
 
-if("`se'"=="" & "`placeboTest'"=="" & "`equiTest'"==""){
+if("`se'"=="" & "`placeboTest'"=="" & "`carryoverTest'"=="" & "`equiTest'"==""){
 	tempname sim_plot
 	tempfile results_plot
 	qui postfile `sim_plot' s atts s_N using `results_plot',replace
@@ -746,6 +892,17 @@ if("`se'"=="" & "`placeboTest'"=="" & "`equiTest'"==""){
 		post `sim_plot' (`s') (`att`s_index'') (`N`s_index'')
 	}
 	postclose `sim_plot'
+
+	if(`hasrev'==1){
+		tempname sim_plot_off
+		tempfile results_plot_off
+		qui postfile `sim_plot_off' s atts s_N using `results_plot_off',replace
+		forvalue s=`min_s_off'/`max_s_off' {
+			local s_index=`s'-`min_s_off'
+			post `sim_plot_off' (`s') (`att_off`s_index'') (`N_off`s_index'')
+		}
+		postclose `sim_plot_off'
+	}
 }
 
 
@@ -759,28 +916,31 @@ if("`wald'"!=""){
 	qui postfile `sim_wald' SimuF using `results_wald',replace
 	qui save `raw2',replace
 	
-	tempvar counter TE S ATTs
-	qui fect_counter `counter' `TE' `ATTs',outcome(`varlist') treat(`treat') unit(`newid') time(`newtime') period_s(`period_s')  ///
+	tempvar counter TE S ATTs ATTs_off
+	qui fect_counter `counter' `TE' `ATTs' `ATTs_off',outcome(`varlist') ///
+	treat(`treat') unit(`newid') time(`newtime') ///
+	t_on(`t_on') t_off(`t_off')  ///
 	method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
 	maxiterations(`maxiterations') lambda(`lambda')
 
-	mata:waldF("`newid'", "`newtime'", "`TE'", "`ATTs'", "`period_s'", `preperiod', 0,"`touse'")
+	mata:waldF("`newid'", "`newtime'", "`TE'", "`ATTs'", "`t_on'", `preperiod', 0,"`touse'")
 	local F_stat=r(F)
 	
 	forval i=1/`nboots' {
 		preserve
-		tempvar counter2 te2 s2 atts2 w new_TE new_outcome
+		tempvar counter2 te2 s2 atts2 atts2_off w new_TE new_outcome
 		qui gen `w'=runiformint(0,1)
 		qui replace `w'=2*(`w'-0.5)
 		qui gen `new_TE'=`w'*`TE'
 		qui gen `new_outcome'=`counter'+`new_TE'
 		
-		qui fect_counter `counter2' `te2' `atts2',outcome(`new_outcome') treat(`treat') unit(`newid') time(`newtime') period_s(`period_s')  ///
+		qui fect_counter `counter2' `te2' `atts2' `atts2_off',outcome(`new_outcome') treat(`treat') unit(`newid') time(`newtime') ///
+		t_on(`t_on') t_off(`t_off')  ///
 		method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
 		maxiterations(`maxiterations') lambda(`lambda')
 		
 		sort `newid' `newtime'
-		mata:waldF("`newid'", "`newtime'", "`te2'", "`atts2'", "`period_s'",  `preperiod', 0,"`touse'")
+		mata:waldF("`newid'", "`newtime'", "`te2'", "`atts2'", "`t_on'",  `preperiod', 0,"`touse'")
 		
 		post `sim_wald' (r(F))
 		restore	
@@ -806,17 +966,35 @@ qui use `raw2',clear
 /* Plot */
 
 //draw plot0
-if("`se'"=="" & "`placeboTest'"=="" & "`equiTest'"==""){
+if("`se'"=="" & "`placeboTest'"=="" & "`carryoverTest'"=="" & "`equiTest'"==""){
 	preserve
-	qui use `results_plot',clear
+	
+	if("`exit'"!="" & `hasrev'==1){
+		qui use `results_plot_off',clear
+		local preperiod = `preperiod_off'
+		local offperiod = `offperiod_off'
+	}
+	else{
+		qui use `results_plot',clear
+	}
+
+	qui egen max_N=max(s_N)
+	qui sum max_N,meanonly
+	local max_N=r(mean)	
+	local N_cutoff = `max_N'*`proportion'
+
+	qui drop if s_N<`N_cutoff'
 	qui drop if s<`preperiod'
 	qui drop if s>`offperiod'
-	qui tsset s
 
+	//update preperiod and offperiod
+	qui sum s, meanonly
+	local preperiod = r(min)
+	local offperiod = r(max)
+
+	qui tsset s
 	qui  egen max_atts=max(atts)
-	qui  egen max_N=max(s_N)
-	qui sum max_N,meanonly
-	local max_N=r(mean)
+
 	local axis2_up=4*`max_N'
 	qui sum max_atts,meanonly
 	local max_atts=1.2*r(mean)
@@ -838,7 +1016,12 @@ if("`se'"=="" & "`placeboTest'"=="" & "`equiTest'"==""){
 	}
 	
 	/* Title */
-	local xlabel = cond("`xlabel'"=="","Time relative to the Treatment","`xlabel'")
+	if("`exit'"==""){
+		local xlabel = cond("`xlabel'"=="","Time relative to the Treatment","`xlabel'")
+	}
+	else{
+		local xlabel = cond("`xlabel'"=="","Time relative to the Exit of Treatment","`xlabel'")
+	}
 	local ylabel = cond("`ylabel'"=="","Average Treatment Effect","`ylabel'")
 	local title = cond("`title'"=="","Estimated Average Treatment Effect","`title'") 
 	if("`wald'"!=""){
@@ -848,24 +1031,30 @@ if("`se'"=="" & "`placeboTest'"=="" & "`equiTest'"==""){
 		local note = " "
 	}
 	
+
 	qui gen y0=0
-	twoway (line atts y0 s,lcolor(blue gray) yaxis(1) lpattern(solid) lwidth(1.1)) ///
-	(bar s_N s,yaxis(2) barwidth(0.5) color(midblue%50)), ///
-	 xline(0, lcolor(midblue) lpattern(dash)) ///
+	/*LSJ NEW*/
+	twoway (scatter atts s, lcolor(black) yaxis(1) msize(2pt)) ///
+	(bar s_N s,yaxis(2) barwidth(0.5) color(gray%50)), ///
+	 xline(0, lcolor(gs6%50) lpattern(dash)) ///
+	 yline(0, lcolor(gs6%50) lpattern(dash)) ///
 	 yscale(axis(2) r(0 `axis2_up')) ///
 	 yscale(axis(1) r(`min_atts' `max_atts')) ///
-	 xlabel(`preperiod' 0 `offperiod') ///
+	 xscale(noextend) ///
+	 xlabel(`preperiod' 0 (10) `offperiod', labsize(*0.75)) ///
 	 xtick(`preperiod'(1)`offperiod') ///
-	 ylabel(0 `max_N',axis(2)) ///
+	 ylabel(0 `max_N',axis(2) ) ///
 	 ytitle(`ylabel',axis(1)) ///
 	 ytitle("Num of observations",axis(2)) ///
 	 xtitle(`xlabel') ///
 	 title(`title') ///
 	 text(`max_atts' `preperiod' "`note'",place(e)) ///
 	 scheme(s2mono) ///
-	 graphr(fcolor(ltbluishgray8)) ///
-	 legend(order( 1 "ATT")) 
-	 
+	 graphr(fcolor(white)) ///
+	 plotregion(lcolor(black) lwidth(tiny) margin(zero) ) ///
+	 legend(order( 1 "ATT")) ///
+
+
 	if("`saving'"!=""){
        cap graph export `saving',replace
 	} 
@@ -874,22 +1063,40 @@ if("`se'"=="" & "`placeboTest'"=="" & "`equiTest'"==""){
 
 
 //draw plot1
-if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"==""){
+if("`se'"!="" & "`placeboTest'"=="" & "`carryoverTest'"=="" & "`equiTest'"==""){
 	preserve
-	qui use `results_plot',clear
+	if("`exit'"!="" & `hasrev'==1){
+		qui use `results_plot_off',clear
+		local preperiod = `preperiod_off'
+		local offperiod = `offperiod_off'
+	}
+	else{
+		qui use `results_plot',clear
+	}
+
+	qui egen max_N=max(s_N)
+	qui sum max_N,meanonly
+	local max_N=r(mean)	
+	local N_cutoff = `max_N'*`proportion'
+
+	qui drop if s_N<`N_cutoff'
 	qui drop if s<`preperiod'
 	qui drop if s>`offperiod'
+
+	//update preperiod and offperiod
+	qui sum s, meanonly
+	local preperiod = r(min)
+	local offperiod = r(max)
+
 	qui tsset s
+
 	local CIlevel=100*(1-`alpha')
-	qui  egen max_atts=max(att_ub)
-	qui  egen max_N=max(s_N)
-	qui sum max_N,meanonly
-	local max_N=r(mean)
+	qui  egen max_atts=max(atts)
 	local axis2_up=4*`max_N'
 	qui sum max_atts,meanonly
 	local max_atts=1.2*r(mean)
 	if `max_atts'<0 {
-	local max_atts=0
+		local max_atts=0
 	}
 	qui  egen min_atts=min(att_lb)
 	qui sum min_atts,meanonly
@@ -906,7 +1113,12 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"==""){
 	}
 	
 	/* Title */
-	local xlabel = cond("`xlabel'"=="","Time relative to the Treatment","`xlabel'")
+	if("`exit'"==""){
+		local xlabel = cond("`xlabel'"=="","Time relative to the Treatment","`xlabel'")
+	}
+	else{
+		local xlabel = cond("`xlabel'"=="","Time relative to the Exit of Treatment","`xlabel'")
+	}	
 	local ylabel = cond("`ylabel'"=="","Average Treatment Effect","`ylabel'")
 	local title = cond("`title'"=="","Estimated Average Treatment Effect","`title'") 
 	if("`wald'"!=""){
@@ -915,24 +1127,28 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"==""){
 	else{
 		local note = " "
 	}
-	
+
+	 /*NEW changes LSJ */
 	qui gen y0=0
-	twoway (rarea att_lb att_ub s, color(gray%30) lcolor(gray) yaxis(1)) ///
-	(line atts y0 s,lcolor(black gray) yaxis(1) lpattern(solid) lwidth(1.1)) ///
-	(bar s_N s,yaxis(2) barwidth(0.5) color(midblue%50)), ///
-	 xline(0, lcolor(midblue) lpattern(dash)) ///
+	twoway (rcap att_lb att_ub s, color(black) lcolor(black) yaxis(1)) ///
+	(scatter atts s, mcolor(black) yaxis(1) msize(2pt)) ///
+	(bar s_N s,yaxis(2) barwidth(0.5) color(gray%50)), ///
+	 xline(0, lcolor(gs6%50) lpattern(dash)) ///
+	 yline(0, lcolor(gs6%50) lpattern(dash)) ///
 	 yscale(axis(2) r(0 `axis2_up')) ///
 	 yscale(axis(1) r(`min_atts' `max_atts')) ///
-	 xlabel(`preperiod' 0 `offperiod') ///
+	 xscale(noextend) ///
+	 xlabel(`preperiod' 0 (10) `offperiod', labsize(*0.75)) ///
 	 xtick(`preperiod'(1)`offperiod') ///
-	 ylabel(0 `max_N',axis(2)) ///
+	 ylabel(0 `max_N',axis(2) ) ///
 	 ytitle(`ylabel',axis(1)) ///
 	 ytitle("Num of observations",axis(2)) ///
 	 xtitle(`xlabel') ///
 	 title(`title') ///
 	 text(`max_atts' `preperiod' "`note'",place(e)) ///
 	 scheme(s2mono) ///
-	 graphr(fcolor(ltbluishgray8)) ///
+	 graphr(fcolor(white)) ///
+	 plotregion(lcolor(black) lwidth(tiny) margin(zero) ) ///
 	 legend(order( 1 "ATT `CIlevel'% CI" 2 "ATT")) 
 	 
 	if("`saving'"!=""){
@@ -944,7 +1160,8 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"==""){
 
 /* Equivalence Test */
 //draw plot2
-if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"!=""){
+// LSJ: Added F test
+if("`se'"!="" & "`placeboTest'"=="" & "`carryoverTest'"=="" & "`equiTest'"!=""){
 	di as txt "{hline}"	
 	di as txt "Equivalence Test"
 	qui reg `varlist' `cov' i.`newid' i.`newtime' [iweight = `weight'] if `treat'==0 & `touse'==1							   
@@ -962,6 +1179,7 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"!=""){
 	
 	qui use `results2',clear
 	local et_flag=0
+	
 	forvalue s=`min_s'/`max_s' {
 		qui sum ATTs if s==`s',meanonly
 		if r(N)<1 {
@@ -986,11 +1204,63 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"!=""){
 	}
 	postclose `sim_etest'
 	
+	/*F test*/
+	local ft_flag=0
+	qui use `results_etest', clear // still use the same one generated for TOST test.
+	/*Get Ntr and m*/
+	qui egen max_N=max(s_N)
+	qui sum max_N,meanonly
+	local max_N=r(mean)	
+	local m_f = abs(`preperiod') 
+
+	/*calculate F stats*/
+	qui use `results2',clear
+	mkmat ATTs if s==`preperiod', matrix(delta_m)
+	// results2 里应当是bootstrap值。那对于每个s，把这个s下的所有ATTs弄成一个nx1的vector ATT_s，再把ATT_s 并排放，得到我们想要的delta = [ATT_-m, ATT_-m+1...ATT_0]
+	local new_s_start = `preperiod'+1
+	forvalue s=`new_s_start'/0{
+		mkmat ATTs if s==`s', matrix(temp)
+		matrix delta_m = delta_m, temp
+	}
+	/*Covariance matrix*/
+	qui mata: delta_m = st_matrix("delta_m")
+	qui	mata: vce_m = st_matrix("vce_m", variance(delta_m))
+
+	mat list delta_m
+	mat list vce_m // display the matrix
+	/*Get F value*/
+	mata: delta_vec = st_matrix("delta_vec", mean(delta_m))
+	matrix F_mat = delta_vec*vce_m*delta_vec'
+	scalar F = (`max_N'*(`max_N'-`m_f'-1)/((`max_N'-1)*(`m_f'+1))) * F_mat[1,1]
+
+	di "F = " F
+	local F_val = F
+	local F_crit = invnFtail(`m_f',`max_N'-`m_f'-1,`m_f'*0.6,`alpha')
+	if(`F_val' < `F_crit'){
+		local ft_flag=1
+	}
+	if(`ft_flag'==1){
+		di as res "Equivalence F-Test...Pass"
+	}
+	else{
+		di as res "Equivalence F-Test...Fail"
+	}	
+
+	local FvalPrint = string(`F_val')
+	/*F test ends*/
+
 	/* Draw Plot */
 	qui use `results_etest',clear
+
+	qui egen max_N=max(s_N)
+	qui sum max_N,meanonly
+	local max_N=r(mean)	
+	local N_cutoff = `max_N'*`proportion'
+	qui drop if s_N<`N_cutoff'
 	qui drop if s<`preperiod'
 	qui drop if s>`offperiod'
 	qui tsset s
+
 	qui  egen max_atts=max(att_ub) if s<=0
 	qui sum max_atts,meanonly
 	qui gen yub=r(mean)
@@ -1011,9 +1281,7 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"!=""){
 	if `min_atts'>-`ebound' {
 		local min_atts=-`ebound'*2
 	}
-	qui  egen max_N=max(s_N)
-	qui sum max_N,meanonly
-	local max_N=r(mean)
+	
 	local axis2_up=8*`max_N'
 	local CIlevel=100*(1-`alpha')
 	local Tlevel=100*(1-2*`alpha')
@@ -1034,23 +1302,30 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"!=""){
 	local ylabel = cond("`ylabel'"=="","Average Treatment Effect","`ylabel'")
 	local title = cond("`title'"=="","Equivalence Test","`title'")
 	
-	twoway (rarea att_lb att_ub s, color(gray%30)  lcolor(gray) yaxis(1)) ///
-	(line atts y0 s,lcolor(black gray) lpattern(solid) yaxis(1) lwidth(1.1)) ///
+	/*NEW changes LSJ */
+	twoway (rcap att_lb att_ub s, color(black)  lcolor(black) yaxis(1)) ///
+	(scatter atts s, mcolor(black) yaxis(1) msize(2pt)) ///
 	(line y1 y2 ylb yub s if s<=0,lcolor(blue blue green green) lpattern(dash dash dash dash) yaxis(1) lwidth(0.5 0.5 0.5 0.5)) ///
-	(bar s_N s,yaxis(2) barwidth(0.5) color(midblue%50)), ///
-	xline(0, lcolor(midblue) lpattern(dash)) ///
-	ysc(axis(1) r(`min_atts' `max_atts')) ///
-	ysc(axis(2) r(0 `axis2_up')) ///
-	ylabel(0 `max_N',axis(2)) ///
-	xlabel(`preperiod' 0 `offperiod') ///
-	xtick(`preperiod'(1)`offperiod') ///
-	ytitle(`ylabel',axis(1)) ///
-	ytitle("Num of Observations",axis(2)) ///
-	xtitle(`xlabel') ///
-	title(`title') ///
-	scheme(s2mono) ///
-	graphr(fcolor(ltbluishgray8)) ///
+	(bar s_N s,yaxis(2) barwidth(0.5) color(gray%50)), ///
+	 xline(0, lcolor(gs6%50) lpattern(dash)) ///
+	 yline(0, lcolor(gs6%50) lpattern(dash)) ///
+	 yscale(axis(2) r(0 `axis2_up')) ///
+	 yscale(axis(1) r(`min_atts' `max_atts')) ///
+	 xscale(noextend) ///
+	 xlabel(`preperiod' 0 (10) `offperiod', labsize(*0.75)) ///
+	 xtick(`preperiod'(1)`offperiod') ///
+	 ylabel(0 `max_N',axis(2) ) ///
+	 ytitle(`ylabel',axis(1)) ///
+	 ytitle("Num of observations",axis(2)) ///
+	 xtitle(`xlabel') ///
+	 title(`title') ///
+	 text(`max_atts' `preperiod' "`note'",place(e)) ///
+	 text(`max_atts' `offperiod' "F-Test p-value: `FvalPrint'",place(sw)) ///
+	 scheme(s2mono) ///
+	 graphr(fcolor(white)) ///
+	 plotregion(lcolor(black) lwidth(tiny) margin(zero) ) ///
 	legend(order(1 "ATT(`Tlevel'% CI)"  2 "ATT" 4 "Equiv.Bound" 6 "Min.Bound")) 
+	
 	
 	if("`saving'"!=""){
        cap graph export `saving',replace
@@ -1061,10 +1336,10 @@ if("`se'"!="" & "`placeboTest'"=="" & "`equiTest'"!=""){
 
 /* Placebo Test */
 //draw plot3
-if("`placeboTest'"!="" & "`se'"!="" & "`equiTest'"==""){
+if("`placeboTest'"!="" & "`se'"!="" & "`carryoverTest'"=="" & "`equiTest'"==""){
 
 	placebo_Test `varlist',treat(`treat') unit(`newid') time(`newtime') ///
-	cov(`cov') method("`method'") weight(`weight') ///
+	cov(`cov') method("`method'") weight(`weight') proportion(`proportion') ///
 	force("`force'") degree(`degree') nknots(`nknots') r(`r') lambda(`lambda') alpha(`alpha') vartype("`vartype'") ///
 	nboots(`nboots') tol(`tol') maxiterations(`maxiterations') seed(`seed') minT0(`minT0') maxmissing(`maxmissing') ///
 	preperiod(`preperiod') offperiod(`offperiod') placeboperiod(`placeboperiod') xlabel(`xlabel') ylabel(`ylabel') title(`title') saving(`saving')
@@ -1077,9 +1352,32 @@ if("`placeboTest'"!="" & "`se'"!="" & "`equiTest'"==""){
 	matrix `placebo_CI' = e(placebo_CI)
 	
 }
+ /*NEW LSJ*/
+ /*Carryover Test*/
+//draw plot4
+if("`carryoverTest'"!="" & "`placeboTest'"=="" & "`se'"!="" & "`equiTest'"==""){
+	//change preperiod and offperiod for exit
+	/* if(`hasrev'==1){
+		local preperiod = `preperiod_off'
+		local offperiod = `offperiod_off'
+	} */
 
+	carryover_Test `varlist',treat(`treat') unit(`newid') time(`newtime') ///
+	cov(`cov') method("`method'") weight(`weight') proportion(`proportion') ///
+	force("`force'") degree(`degree') nknots(`nknots') r(`r') lambda(`lambda') alpha(`alpha') vartype("`vartype'") ///
+	nboots(`nboots') tol(`tol') maxiterations(`maxiterations') seed(`seed') minT0(`minT0') maxmissing(`maxmissing') ///
+	preperiod(`preperiod_off') offperiod(`offperiod_off') carryoverperiod(`carryoverperiod') xlabel(`xlabel') ylabel(`ylabel') title(`title') saving(`saving')
+	
+	//to save
+	local carryover_pvalue=e(carryover_pvalue)
+	local carryover_ATT_mean=e(carryover_ATT_mean)
+	local carryover_ATT_sd=e(carryover_ATT_sd)
+	tempname carryover_CI
+	matrix `carryover_CI' = e(carryover_CI)
+	
+}
 
-
+/*LSJ END*/
 
 /* Storage */
 ereturn clear
@@ -1125,7 +1423,7 @@ if("`se'"==""){
 }
 
 //ATTsd
-if("`se'"!="" & "`placeboTest'"==""){
+if("`se'"!="" & "`placeboTest'"=="" & "`carryoverTest'"==""){
 	//ereturn scalar ATTsd=`ATTsd'
 	//ereturn matrix ATTCI=`ci_att'
 
@@ -1140,7 +1438,7 @@ if("`se'"!="" & "`placeboTest'"==""){
 }
 
 //ATTs & coef
-if("`se'"!="" & "`placeboTest'"==""){
+if("`se'"!="" & "`placeboTest'"=="" & "`carryoverTest'"==""){
 	preserve
 	qui use `results_plot',clear
 	qui rename atts ATT
@@ -1150,18 +1448,30 @@ if("`se'"!="" & "`placeboTest'"==""){
 	qui rename s_N n
 	
 	gen ATT_p_value=2*(1-normal(abs(ATT/ATT_sd)))
-	
 	order s n ATT ATT_sd ATT_p_value ATT_Lower_Bound ATT_Upper_Bound
 	tempname ATTs_matrix
 	qui mkmat s n ATT ATT_sd ATT_p_value ATT_Lower_Bound ATT_Upper_Bound, matrix(`ATTs_matrix')
 	ereturn matrix ATTs=`ATTs_matrix'
+
+	if(`hasrev'==1){
+		qui use `results_plot_off',clear
+		qui rename atts ATT
+		qui rename attsd ATT_sd
+		qui rename att_lb ATT_Lower_Bound
+		qui rename att_ub ATT_Upper_Bound
+		qui rename s_N n
+		gen ATT_p_value=2*(1-normal(abs(ATT/ATT_sd)))
+		order s n ATT ATT_sd ATT_p_value ATT_Lower_Bound ATT_Upper_Bound
+		tempname ATTs_off_matrix
+		qui mkmat s n ATT ATT_sd ATT_p_value ATT_Lower_Bound ATT_Upper_Bound, matrix(`ATTs_off_matrix')
+		ereturn matrix ATTs_off=`ATTs_off_matrix'		
+	}
 
 	qui use `results_coef',clear
 	tempname coefs_matrix_output
 	qui mkmat coef sd p_value lower_bound upper_bound, matrix(`coefs_matrix_output')
 	matrix rownames  `coefs_matrix_output'= cons `cov'
 	ereturn matrix coefs=`coefs_matrix_output'
-
 	restore
 }
 //permutation
@@ -1188,6 +1498,19 @@ if("`placeboTest'"!=""){
 
 }
 
+/*NEW LSJ*/
+//Carryover
+if("`carryoverTest'"!=""){
+	ereturn scalar carryover_pvalue=`carryover_pvalue'
+
+	tempname carryover_ATT_final_output
+	matrix `carryover_ATT_final_output'=(`carryover_ATT_mean',`carryover_ATT_sd',`carryover_CI'[1,1],`carryover_CI'[1,2],`carryover_pvalue')
+	matrix colnames `carryover_ATT_final_output'=carryover_ATT sd Lower_Bound Upper_Bound pvalue
+	ereturn matrix carryover_ATT=`carryover_ATT_final_output'
+
+}
+/*LSJ END*/
+
 //counterfactual
 qui use `raw',clear	
 if("`counterfactual'"!=""){
@@ -1202,11 +1525,12 @@ end
 
 *********************************************************functions
 program fect_counter,eclass
-syntax newvarlist(min=3 max=3 gen) [if] , outcome(varlist min=1 max=1) ///
+syntax newvarlist(min=4 max=4 gen) [if] , outcome(varlist min=1 max=1) ///
 									treat(varlist min=1 max=1) ///
 									unit(varlist min=1 max=1) ///
 									time(varlist min=1 max=1) ///
-									period_s(varlist min=1 max=1) ///
+									t_on(varlist min=1 max=1) ///
+									t_off(varlist min=1 max=1) ///
 									method(string) ///
 									force(string) ///
 									[ cov(varlist) ///
@@ -1216,9 +1540,11 @@ syntax newvarlist(min=3 max=3 gen) [if] , outcome(varlist min=1 max=1) ///
 									  tol(real 1e-5) ///
 									  maxiterations(integer 5000) ///
 									  lambda(real 0.5) ///
+									  t_on_original(varlist max=1) ///
+									  t_off_original(varlist max=1) ///
 									]
 
-set trace off
+set trace on
 tempvar touse 
 mark `touse' `if'
 
@@ -1545,12 +1871,22 @@ qui gen double `treat_effect'=`outcome'-`counterfactual'
 qui replace `2' = `treat_effect'
 sort `unit' `time'
 
-tempvar treatsum targettime target ATTs
+tempvar treatsum targettime target_on ATTs target_off ATTs_off
 //qui mata:gen_s("`treat'","`newid'","`newtime'","`target'")
-gen `target'=`period_s'
-qui bys `target': egen `ATTs'= mean(`treat_effect') if `target'!=. & `touse'==1
-//qui replace `3' = `target' if `touse'==1 
+gen `target_on'=`t_on'
+if("`t_on_original'"!=""){
+	replace `target_on'=`t_on_original'
+}
+qui bys `target_on': egen `ATTs'= mean(`treat_effect') if `target_on'!=. & `touse'==1
 qui replace `3' = `ATTs' if `touse'==1
+
+gen `target_off'=`t_off'
+if("`t_off_original'"!=""){
+	replace `target_off'=`t_off_original'
+}
+qui bys `target_off': egen `ATTs_off'= mean(`treat_effect') if `target_off'!=. & `touse'==1
+qui replace `4' = `ATTs_off' if `touse'==1
+
 qui sort `newid' `newtime'
 ereturn scalar converge=`Converge'
 ereturn scalar cons= `mu_output'
@@ -1564,7 +1900,8 @@ program cross_validation,eclass
 syntax varlist(min=1 max=1), treat(varlist min=1 max=1) ///
 						     unit(varlist min=1 max=1) ///
 						     time(varlist min=1 max=1) ///
-							 period_s(varlist min=1 max=1) ///
+							 t_on(varlist min=1 max=1) ///
+							 t_off(varlist min=1 max=1) ///
 						     method(string) ///
 							 force(string) ///
 							[ cov(varlist) ///
@@ -1594,19 +1931,36 @@ sort `newid' `newtime'
 tempvar validation
 tempname sim final_sim final_sim2
 tempfile results final_results final_results2	
-
 gen `validation'=0
-sort `newid' `time'
-
-mata: val_gen("`treat'", "`newid'", "`newtime'", "`touse'", ///
-`kfold',`cvnobs',"`validation'",`seed')
 
 /* Only for treated values */
+if("`cvtreat'"!=""){
+	tempvar iftreat obs_num
+	tempfile tempsave
+	qui gen `obs_num' = _n
+	qui save `tempsave',replace
+	qui bys `newid':  egen `iftreat'=mean(`treat')
+	qui keep if `iftreat'>0
+	mata:val_gen("`treat'", "`newid'", "`newtime'", "`touse'", ///
+				 `kfold',`cvnobs',"`validation'",`seed')
+	qui keep `obs_num' `validation'
+	qui merge 1:1 `obs_num' using `tempsave', nogen nol nonote norep
+	qui drop `obs_num'
+	qui replace `validation' = 0 if `validation'==.
+	sort `newid' `newtime'
+}
+else{
+	mata: val_gen("`treat'", "`newid'", "`newtime'", "`touse'", ///
+	`kfold',`cvnobs',"`validation'",`seed')
+}
+
+/*
 if("`cvtreat'"!=""){ 
 	tempvar iftreat
 	qui bys `newid':  egen `iftreat'=mean(`treat')
 	qui replace `validation'=0 if `iftreat'==0
 }
+*/
 
 if("`method'"=="ife" | "`method'"=="both"){
 	qui postfile `final_sim' r mspe using `final_results',replace
@@ -1616,10 +1970,11 @@ if("`method'"=="ife" | "`method'"=="both"){
 		if `fnum'==0 {
 			forval i=1/`kfold' {
 				preserve
-				tempvar counter spe TE S ATTs
-				qui fect_counter `counter' `TE' `ATTs' if `validation'!=`i' & `touse'==1,outcome(`varlist') ///
-				treat(`treat') unit(`newid') time(`newtime') period_s(`period_s') ///
-				cov(`cov') method("fe") force("`force'") 
+				tempvar counter spe TE S ATTs ATTs_off
+				qui fect_counter `counter' `TE' `ATTs' `ATTs_off' ///
+				if `validation'!=`i' & `touse'==1,outcome(`varlist') ///
+				treat(`treat') unit(`newid') time(`newtime') t_on(`t_on') ///
+				t_off(`t_off') cov(`cov') method("fe") force("`force'") 
 				
 				if(e(converge)==0){
 					restore
@@ -1641,7 +1996,7 @@ if("`method'"=="ife" | "`method'"=="both"){
 		egen `weight_mean'=wtmean(spe),weight(N)
 		qui sum `weight_mean',meanonly
 		post `final_sim' (0) (r(mean))
-		local mspe = string(round(r(mean),.001))
+		local mspe = string(round(r(mean),.0001))
 		di as txt "fe r=0 force=`force' mspe=`mspe'"
 		restore
 		continue
@@ -1650,11 +2005,12 @@ if("`method'"=="ife" | "`method'"=="both"){
 		/* ife */
 		forval i=1/`kfold' {
 			preserve
-			tempvar counter spe TE S ATTs
+			tempvar counter spe TE S ATTs ATTs_off
 
-			qui fect_counter `counter' `TE' `ATTs' if `validation'!=`i' & `touse'==1,outcome(`varlist') ///
-			treat(`treat') unit(`newid') time(`newtime') period_s(`period_s') ///
-			cov(`cov') method("ife") force("`force'") r(`fnum')  ///
+			qui fect_counter `counter' `TE' `ATTs' `ATTs_off' ///
+			if `validation'!=`i' & `touse'==1,outcome(`varlist') ///
+			treat(`treat') unit(`newid') time(`newtime') t_on(`t_on') ///
+			t_off(`t_off') cov(`cov') method("ife") force("`force'") r(`fnum')  ///
 			tol(`tol') maxiterations(`maxiterations') 
 			
 			if(e(converge)==0){
@@ -1680,7 +2036,7 @@ if("`method'"=="ife" | "`method'"=="both"){
 		tempvar weight_mean
 		 egen `weight_mean'=wtmean(spe),weight(N)
 		qui sum `weight_mean',meanonly
-		local mspe = string(round(r(mean),.001))
+		local mspe = string(round(r(mean),.0001))
 		post `final_sim' (`fnum') (r(mean))
 		di as txt "ife r=`fnum' force=`force' mspe=`mspe'"
 		restore
@@ -1690,7 +2046,7 @@ if("`method'"=="ife" | "`method'"=="both"){
 
 if("`method'"=="mc" | "`method'"=="both"){
 
-	qui postfile `final_sim2' lambda mspe using `final_results2',replace
+	qui postfile `final_sim2' lambda lambda_norm mspe using `final_results2',replace
 	//get lambda list
 	tempvar FE1 FE2 e
 	if("`force'"=="two-way"){
@@ -1735,15 +2091,16 @@ if("`method'"=="mc" | "`method'"=="both"){
 	}
 		
 	foreach lambda_grid in `lambda' {
+		local lambda_grid_norm = `lambda_grid'/`start_lambda'
 		qui postfile `sim' N spe using `results',replace
 
 		forval i=1/`kfold' {
 			preserve
-			tempvar counter spe TE S ATTs
+			tempvar counter spe TE S ATTs ATTs_off
 			
-			qui fect_counter `counter' `TE' `ATTs' if `validation'!=`i' & `touse'==1,outcome(`varlist') ///
-			treat(`treat') unit(`newid') time(`newtime') period_s(`period_s') ///
-			cov(`cov') method("mc")  force(`force') ///
+			qui fect_counter `counter' `TE' `ATTs' `ATTs_off' if `validation'!=`i' & `touse'==1,outcome(`varlist') ///
+			treat(`treat') unit(`newid') time(`newtime') t_on(`t_on') ///
+			t_off(`t_off') cov(`cov') method("mc") force(`force') ///
 			tol(`tol') maxiterations(`maxiterations') lambda(`lambda_grid')
 			
 			if(e(converge)==0){
@@ -1763,12 +2120,12 @@ if("`method'"=="mc" | "`method'"=="both"){
 		preserve
 		use `results',clear
 		tempvar weight_mean
-		 egen `weight_mean'=wtmean(spe),weight(N)
+		egen `weight_mean'=wtmean(spe),weight(N)
 		qui sum `weight_mean' ,meanonly
-		post `final_sim2' (`lambda_grid') (r(mean))
-		local mspe = string(round(r(mean),.001))
+		post `final_sim2' (`lambda_grid') (`lambda_grid_norm') (r(mean))
+		local mspe = string(round(r(mean),.0001))
 		local lambda_print = string(round(`lambda_grid',.0001))
-		local lambda_norm_print = string(round(`lambda_grid'/`start_lambda',.001))
+		local lambda_norm_print = string(round(`lambda_grid'/`start_lambda',.0001))
 		di as txt "mc: lambda=`lambda_print' lambda.norm=`lambda_norm_print' mspe=`mspe'"
 		restore
 	}
@@ -1787,10 +2144,10 @@ if("`method'"=="bspline"){
 
 		forval i=1/`kfold' {
 			preserve
-			tempvar counter spe TE S ATTs
-			qui fect_counter `counter' `TE'  `ATTs' if `validation'!=`i' & `touse'==1,outcome(`varlist') ///
-			treat(`treat') unit(`newid') time(`newtime') period_s(`period_s') ///
-			cov(`cov') method("bspline") nknots(`knot') force(`force')
+			tempvar counter spe TE S ATTs ATTs_off
+			qui fect_counter `counter' `TE'  `ATTs' `ATTs_off' if `validation'!=`i' & `touse'==1,outcome(`varlist') ///
+			treat(`treat') unit(`newid') time(`newtime') t_on(`t_on') ///
+			t_off(`t_off') cov(`cov') method("bspline") nknots(`knot') force(`force')
 
 			qui gen `spe'=(`varlist'-`counter')^2 if `validation'==`i' & `touse'==1
 			qui sum `spe' [iweight=`weight'] if `validation'==`i' & `touse'==1,meanonly
@@ -1807,7 +2164,7 @@ if("`method'"=="bspline"){
 		 egen `weight_mean'=wtmean(spe),weight(N)
 		qui sum `weight_mean',meanonly
 		post `final_sim' (`knot') (r(mean))
-		local mspe = string(round(r(mean),.001))
+		local mspe = string(round(r(mean),.0001))
 		di as txt "bspline nknots=`knot' mspe=`mspe'"
 		restore
 	}
@@ -1828,10 +2185,10 @@ if("`method'"=="polynomial"){
 
 		forval i=1/`kfold' {
 			preserve
-			tempvar counter spe TE S ATTs
-			qui fect_counter `counter' `TE' `ATTs' if `validation'!=`i' & `touse'==1,outcome(`varlist') ///
-			treat(`treat') unit(`newid') time(`newtime') period_s(`period_s') ///
-			cov(`cov') method("polynomial") degree(`dg') force(`force')
+			tempvar counter spe TE S ATTs ATTs_off
+			qui fect_counter `counter' `TE' `ATTs' `ATTs_off' if `validation'!=`i' & `touse'==1,outcome(`varlist') ///
+			treat(`treat') unit(`newid') time(`newtime') t_on(`t_on') ///
+			t_off(`t_off') cov(`cov') method("polynomial") degree(`dg') force(`force')
 
 			qui gen `spe'=(`varlist'-`counter')^2 if `validation'==`i' & `touse'==1
 			qui sum `spe' [iweight=`weight'] if `validation'==`i' & `touse'==1,meanonly
@@ -1848,7 +2205,7 @@ if("`method'"=="polynomial"){
 		 egen `weight_mean'=wtmean(spe),weight(N)
 		qui sum `weight_mean',meanonly
 		post `final_sim' (`dg') (r(mean))
-		local mspe = string(round(r(mean),.001))
+		local mspe = string(round(r(mean),.0001))
 		di as txt "polynomial degree=`dg' mspe=`mspe'"
 		restore
 	}
@@ -1887,10 +2244,14 @@ if("`method'"=="mc"){
 	local min_mspe=r(mean)
 	ereturn scalar min_mspe=`min_mspe'
 	qui sum lambda in 1,meanonly
-	local optimal_lambda=string(round(r(mean),.001))
+	local optimal_lambda=string(round(r(mean),.0001))
 	ereturn scalar optimal_parameter=`optimal_lambda'
+
+	qui sum lambda_norm in 1,meanonly
+	local optimal_lambda_norm =string(round(r(mean),.0001))
+
 	ereturn scalar method = 2
-	di as res "optimal lambda=`optimal_lambda' in mc model"
+	di as res "optimal lambda=`optimal_lambda', lambda.norm=`optimal_lambda_norm' in mc model"
 	restore
 }
 if("`method'"=="bspline"){
@@ -1902,7 +2263,7 @@ if("`method'"=="bspline"){
 	local min_mspe=r(mean)
 	ereturn scalar min_mspe=`min_mspe'
 	qui sum nknots in 1,meanonly
-	local optimal_nknots=string(round(r(mean),.001))
+	local optimal_nknots=string(round(r(mean),.0001))
 	ereturn scalar optimal_parameter=`optimal_nknots'
 	ereturn scalar method = 3
 	di as res "optimal nknots=`optimal_nknots' in bspline model"
@@ -1941,9 +2302,11 @@ if("`method'"=="both"){
 	local min_mspe2=r(mean)
 	qui sum lambda in 1,meanonly
 	local optimal_parameter2=r(mean)
+	qui sum lambda_norm in 1,meanonly
+	local optimal_parameter2_norm=r(mean)
 	
 	if(`min_mspe1'<=`min_mspe2'){
-		di as res "choose fe/ife model with optimal r=`optimal_parameter1'"
+		di as res "Choose the fe/ife model, r = `optimal_parameter1'."
 		ereturn matrix CV=CV1
 		ereturn scalar min_mspe=`min_mspe1'
 		if(`optimal_parameter1'==0){
@@ -1958,8 +2321,9 @@ if("`method'"=="both"){
 		ereturn matrix CV=CV2
 		ereturn scalar min_mspe=`min_mspe2'
 		ereturn scalar optimal_parameter=`optimal_parameter2'
-		local optimal_parameter2=string(round(`optimal_parameter2',.001))
-		di as res "choose mc model with optimal lambda=`optimal_parameter2'"
+		local optimal_parameter2=string(round(`optimal_parameter2',.0001))
+		local optimal_parameter2_norm=string(round(`optimal_parameter2_norm',.0001))
+		di as res "Choose the mc model, lambda = `optimal_parameter2', lambda.norm = `optimal_parameter2_norm'."
 		ereturn scalar method=2
 	}
 }
@@ -1988,6 +2352,7 @@ syntax varlist(min=1 max=1) , Treat(varlist min=1 max=1) ///
 								  maxmissing(integer 0) ///
 								  preperiod(integer -999999) ///
 								  offperiod(integer 999999) ///
+								  Proportion(real 0.3) ///
 								  placeboperiod(integer 3) ///
 								  Xlabel(string) ///
 								  Ylabel(string) ///
@@ -2006,14 +2371,20 @@ sort `newid' `newtime'
 local lag=`placeboperiod'
 
 //generate placebotreat
-tempvar ptreat
+tempvar ptreat treat_rev
 qui mata:p_treat("`treat'","`newid'", "`newtime'","`ptreat'",`lag')
 //generate true s
-tempvar true_s
+tempvar true_s true_s_off
+qui gen `treat_rev' = 1 - `treat'
 qui mata:gen_s("`treat'","`newid'", "`newtime'","`true_s'")
+qui mata:gen_s("`treat_rev'","`newid'", "`newtime'","`true_s_off'")
 //generate placebo s
-tempvar placebo_period_s
-qui mata:gen_s("`ptreat'","`newid'", "`newtime'","`placebo_period_s'")
+tempvar placebo_t_on
+qui mata:gen_s("`ptreat'","`newid'", "`newtime'","`placebo_t_on'")
+//generate pllacebo s_off
+tempvar ptreat_rev placebo_t_off
+qui gen `ptreat_rev' = 1 - `ptreat'
+qui mata:gen_s("`ptreat_rev'","`newid'", "`newtime'","`placebo_t_off'")
 
 /* Threshold of touse */
 tempvar ftreat notreatnum notmissingy missingy
@@ -2033,10 +2404,12 @@ qui drop if `touse'==0
 /* Threshold of touse END*/
 
 preserve
-tempvar counter TE S ATTs
+tempvar counter TE S ATTs ATTs_off
 
-qui fect_counter `counter' `TE' `ATTs',outcome(`varlist') treat(`ptreat') unit(`newid') time(`newtime') period_s(`placebo_period_s') ///
-method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol')  ///
+qui fect_counter `counter' `TE' `ATTs' `ATTs_off',outcome(`varlist') treat(`ptreat') unit(`newid') time(`newtime') ///
+t_on(`placebo_t_on') t_off(`placebo_t_off') t_on_original(`true_s') t_off_original(`true_s_off') ///
+method("`method'") force("`force'") cov(`cov') nknots(`nknots') ///
+degree(`degree') r(`r') tol(`tol')  ///
 maxiterations(`maxiterations') lambda(`lambda')
 
 qui sum `TE' [iweight = `weight'] if `true_s'<=0 & `true_s'>-`lag' & `touse'==1 ,meanonly
@@ -2072,12 +2445,13 @@ if("`vartype'"=="bootstrap"){
 	di as txt "Bootstrapping..."
 	forvalue i=1/`nboots'{
 		preserve
-		tempvar counter TE S ATTs
+		tempvar counter TE S ATTs  ATTs_off
 		bsample, cluster(`newid') idcluster(boot_id) 
 		drop `newid'
 		rename boot_id `newid'
 			
-		capture qui fect_counter `counter' `TE' `ATTs',outcome(`varlist') treat(`ptreat') unit(`newid') time(`newtime') period_s(`placebo_period_s') ///
+		capture qui fect_counter `counter' `TE' `ATTs' `ATTs_off',outcome(`varlist') treat(`ptreat') unit(`newid') time(`newtime') ///
+		t_on(`placebo_t_on') t_off(`placebo_t_off') t_on_original(`true_s') t_off_original(`true_s_off') ///
 		method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
 		maxiterations(`maxiterations') lambda(`lambda')
 			
@@ -2121,10 +2495,11 @@ if("`vartype'"=="jackknife"){
 	local max_id=r(max)
 	forvalue i=1/`max_id'{
 		preserve
-		tempvar counter TE S ATTs
+		tempvar counter TE S ATTs ATTs_off
 		qui drop if `order_rank'==`i'
 			
-		capture qui fect_counter `counter' `TE' `ATTs',outcome(`varlist') treat(`ptreat') unit(`newid') time(`newtime') period_s(`placebo_period_s')  ///
+		capture qui fect_counter `counter' `TE' `ATTs' `ATTs_off',outcome(`varlist') treat(`ptreat') unit(`newid') time(`newtime') ///
+		t_on(`placebo_t_on') t_off(`placebo_t_off') t_on_original(`true_s') t_off_original(`true_s_off')  ///
 		method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
 		maxiterations(`maxiterations') lambda(`lambda')
 			
@@ -2268,12 +2643,27 @@ if("`vartype'"=="jackknife"){
 // Draw ATTs plot
 preserve
 qui use `results_plot',clear
-qui tsset s
-local CIlevel=100*(1-`alpha')
-qui  egen max_atts=max(att_ub)
+
 qui  egen max_N=max(s_N)
 qui sum max_N,meanonly
 local max_N=r(mean)
+/*NEW update with regard to proportion*/
+local N_cutoff = `max_N'*`proportion'
+
+qui drop if s_N<`N_cutoff'
+qui drop if s<`preperiod'
+qui drop if s>`offperiod'
+
+//update preperiod and offperiod
+qui sum s, meanonly
+local preperiod = r(min)
+local offperiod = r(max)
+/*NEW End*/
+
+qui tsset s
+local CIlevel=100*(1-`alpha')
+qui  egen max_atts=max(att_ub)
+
 local axis2_up=4*`max_N'
 qui sum max_atts,meanonly
 local max_atts=1.2*r(mean)
@@ -2302,25 +2692,30 @@ local ylabel = cond("`ylabel'"=="","Average Treatment Effect","`ylabel'")
 local title = cond("`title'"=="","Placebo Test","`title'")
 local neg_lag=-(`lag'-1)
 
-twoway (rarea att_lb att_ub s, color(gray%30) lcolor(gray) yaxis(1)) ///
-(rarea att_lb att_ub s if s>-`lag' & s<=0, color(blue%30) lcolor(blue) yaxis(1)) ///
-(line atts y0 s,lcolor(black gray) yaxis(1) lpattern(solid) lwidth(1.1)) ///
+
+/* NEW Changes LSJ */
+twoway (rcap att_lb att_ub s, color(black) lcolor(black) yaxis(1)) ///
+(scatter atts s, mcolor(black) yaxis(1) msize(2pt)) ///
+(rcap att_lb att_ub s if s>-`lag' & s<=0, color(blue) lcolor(blue) yaxis(1)) ///
 (scatter atts s if s>-`lag' & s<=0,mcolor(blue) msymbol(O) yaxis(1) msize(small)) ///
-(bar s_N s,yaxis(2) barwidth(0.5) color(midblue%50)), ///
-xline(0 -`placebo_line', lcolor(midblue) lpattern(dash)) ///
-ysc(axis(1) r(`min_atts' `max_atts')) ///
-ysc(axis(2) r(0 `axis2_up')) ///
-ylabel(0 `max_N',axis(2)) ///
-xlabel(`preperiod' `neg_lag' 0 `offperiod') ///
-xtick(`preperiod'(1)`offperiod') ///
-ytitle(`ylabel',axis(1)) ///
-ytitle("Num of observations",axis(2)) ///
-xtitle(`xlabel') ///
-title(`title') ///
-text(`max_atts' `preperiod' "Placebo Test p-value: `placebo_pvalueplot'",place(e)) ///
-scheme(s2mono) ///
-graphr(fcolor(ltbluishgray8)) ///
-note("`CIlevel'% Confidence Interval") ///
+	(bar s_N s,yaxis(2) barwidth(0.5) color(gray%50)), ///
+	 xline(0 -`placebo_line', lcolor(gs6%50) lpattern(dash)) ///
+	 yline(0, lcolor(gs6%50) lpattern(dash)) ///
+	 yscale(axis(2) r(0 `axis2_up')) ///
+	 yscale(axis(1) r(`min_atts' `max_atts')) ///
+	 xscale(noextend) ///
+	 xlabel(`preperiod' 0 (10) `offperiod', labsize(*0.75)) ///
+	 xtick(`preperiod'(1)`offperiod') ///
+	 ylabel(0 `max_N',axis(2) ) ///
+	 ytitle(`ylabel',axis(1)) ///
+	 ytitle("Num of observations",axis(2)) ///
+	 xtitle(`xlabel') ///
+	 title(`title') ///
+	 text(`max_atts' `offperiod' "Placebo Test p-value: `placebo_pvalueplot'",place(sw)) ///
+	 scheme(s2mono) ///
+	 graphr(fcolor(white)) ///
+	 plotregion(lcolor(black) lwidth(tiny) margin(zero) ) ///
+	 note("`CIlevel'% Confidence Interval") ///
 legend(order( 1 "ATT(`CIlevel'% CI)" 2 "Placebo Region" 3 "ATT")) 
 
 
@@ -2338,11 +2733,409 @@ ereturn matrix placebo_CI=`placebo_ci_att'
 
 end
 
+/*NEW LSJ Carryover Effect Test*/
+program define carryover_Test,eclass
+syntax varlist(min=1 max=1) , Treat(varlist min=1 max=1) ///
+								  Unit(varlist min=1 max=1) ///
+								  Time(varlist min=1 max=1) ///
+								[ cov(varlist) ///
+								  weight(varlist max=1) ///
+								  force(string) ///
+								  degree(integer 3) ///
+								  nknots(integer 3) ///
+								  r(integer 3) ///
+								  lambda(real 0.5) ///
+								  method(string) ///
+								  alpha(real 0.05) ///
+								  vartype(string) ///
+								  nboots(integer 200) ///
+								  tol(real 1e-4) ///
+								  maxiterations(integer 5000) ///
+								  seed(integer 12345678) ///
+								  minT0(integer 5) ///
+								  maxmissing(integer 0) ///
+								  preperiod(integer -999999) ///
+								  offperiod(integer 999999) ///
+								  Proportion(real 0.3) ///
+								  carryoverperiod(integer 3) ///
+								  Xlabel(string) ///
+								  Ylabel(string) ///
+								  Title(string) ///
+								  Saving(string) ///
+								]
+
+set trace off
+di as txt "{hline}"	
+di as txt "Carryover Test..."
+tempvar newid newtime touse
+qui gen `touse'=1
+qui  egen `newid'=group(`unit')
+qui  egen `newtime'=group(`time')
+sort `newid' `newtime'
+local lead=`carryoverperiod'
+
+//generate carryovertreat
+tempvar ctreat
+qui mata:c_treat("`treat'","`newid'", "`newtime'","`ctreat'",`lead')
+//generate true s
+tempvar true_s
+qui mata:gen_s("`treat'","`newid'", "`newtime'","`true_s'")
+//generate true reverse s
+tempvar treat_rev true_off_s
+qui gen `treat_rev' = 1 - `treat'
+qui mata:gen_s("`treat_rev'","`newid'", "`newtime'","`true_off_s'")
+//generate carryover s
+tempvar carryover_t_on
+qui mata:gen_s("`ctreat'","`newid'", "`newtime'","`carryover_t_on'")
+//generate carryover s_off
+tempvar ctreat_rev carryover_t_off
+qui gen `ctreat_rev' = 1 - `ctreat'
+qui mata:gen_s("`ctreat_rev'","`newid'", "`newtime'","`carryover_t_off'")
+
+/* Threshold of touse */
+tempvar ftreat notreatnum notmissingy missingy
+gen `ftreat'=0
+qui replace `ftreat'=1 if `ctreat'==0 & `varlist'!=. //the number of training data
+bys `newid': egen `notreatnum'=sum(`ftreat')
+qui replace `touse'=0 if `notreatnum'<`minT0'
+
+if(`maxmissing'>0){
+	bys `newid': egen `notmissingy'=count(`varlist')
+	qui sum `newtime',meanonly
+	local TT = r(max)-r(min)
+	qui gen `missingy'=`TT'-`notmissingy'
+	qui replace `touse'=0 if `missingy'>`maxmissing'
+}
+qui drop if `touse'==0
+/* Threshold of touse END*/
+
+preserve
+tempvar counter TE S ATTs ATTs_off
+
+qui fect_counter `counter' `TE' `ATTs' `ATTs_off',outcome(`varlist') treat(`ctreat') unit(`newid') time(`newtime') ///
+t_on(`carryover_t_on') t_off(`carryover_t_off') t_on_original(`true_s') t_off_original(`true_off_s') ///
+method("`method'") force("`force'") cov(`cov') nknots(`nknots') ///
+degree(`degree') r(`r') tol(`tol')  ///
+maxiterations(`maxiterations') lambda(`lambda')
+/*QUESTION: lead 3 periods, including 0?*/
+qui sum `TE' [iweight = `weight'] if `true_off_s'>0 & `true_off_s'<=`lead' & `touse'==1 ,meanonly
+local CarryoverATT=r(mean)
+
+forvalue s=`preperiod'/`offperiod' {
+
+	qui sum `TE' [iweight = `weight'] if `true_off_s'==`s' & `touse'==1 ,meanonly
+	
+	if r(N)==0{
+		di in red "No observations for s=`s'"
+		local s_index=`s'-`preperiod'
+		local att_off`s_index' = .
+		local N_off`s_index'=0
+	}
+	else{
+		local s_index=`s'-`preperiod'
+		local att_off`s_index' = r(mean)
+		local N_off`s_index'=r(N)
+	}
+	
+}
+restore
+ 
+tempname sim sim2_off
+tempfile results results2_off
+qui postfile `sim' ATT using `results',replace
+qui postfile `sim2_off' s ATTs using `results2_off',replace
+// sim-results: ATT only in 0-lead periods
+// sim2_off-results2_off: ATT for all the periods
+
+if("`vartype'"=="bootstrap"){
+	di as txt "Bootstrapping..."
+	forvalue i=1/`nboots'{
+		preserve
+		tempvar counter TE S ATTs  ATTs_off
+		bsample, cluster(`newid') idcluster(boot_id) 
+		drop `newid'
+		rename boot_id `newid'
+			
+		capture qui fect_counter `counter' `TE' `ATTs' `ATTs_off',outcome(`varlist') treat(`ctreat') unit(`newid') time(`newtime') ///
+		t_on(`carryover_t_on') t_off(`carryover_t_off') t_on_original(`true_s') t_off_original(`true_off_s')  ///
+		method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
+		maxiterations(`maxiterations') lambda(`lambda')
+			
+		if _rc!=0 {
+			restore
+			continue
+		}
+			
+		/* ATT */
+		qui sum `TE' [iweight = `weight'] if `true_off_s'>0 & `true_off_s'<=`lead' & `touse'==1,meanonly
+		if r(mean)!=.{
+			post `sim' (r(mean))
+		}
+			
+		forvalue si=`preperiod'/`offperiod' {
+			qui sum `ATTs_off' [iweight = `weight'] if `true_off_s'==`si' & `touse'==1,meanonly
+			if r(mean)!=.{
+				post `sim2_off' (`si') (r(mean))
+			}
+		}
+			
+		if mod(`i',100)==0 {
+			di as txt "ATT Estimation: Already Bootstrapped `i' Times"
+		}
+		restore
+		}
+		postclose `sim'
+		postclose `sim2_off'
+}
+	
+if("`vartype'"=="jackknife"){
+	//di as txt "{hline}"	
+	di as txt "Jackknifing..."
+	tempvar order order_mean order_rank
+	bys `newid': gen `order'=runiform()
+	bys `newid':  egen `order_mean'=mean(`order')
+	sort `order_mean'
+	 egen `order_rank'=group(`order_mean')
+	qui sum `newid',meanonly
+	local max_id=r(max)
+	forvalue i=1/`max_id'{
+		preserve
+		tempvar counter TE S ATTs ATTs_off
+		qui drop if `order_rank'==`i'
+			
+		capture qui fect_counter `counter' `TE' `ATTs' `ATTs_off',outcome(`varlist') treat(`ctreat') unit(`newid') time(`newtime') ///
+		t_on(`carryover_t_on') t_off(`carryover_t_off') t_on_original(`true_s') t_off_original(`true_off_s')   ///
+		method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
+		maxiterations(`maxiterations') lambda(`lambda')
+			
+		if _rc!=0 {
+			restore
+			continue
+		}
+			
+		/* ATT */
+		qui sum `TE' [iweight = `weight'] if `true_off_s'>0 & `true_off_s'<=`lead' & `touse'==1,meanonly
+		if r(mean)!=.{
+			post `sim' (r(mean))
+		}
+			
+		/* ATTs */
+		forvalue si=`preperiod'/`offperiod' {
+			qui sum `ATTs_off' [iweight = `weight'] if `true_off_s'==`si' & `touse'==1,meanonly
+			if r(mean)!=.{
+				post `sim2_off' (`si') (r(mean))
+			}
+		}
+			
+		//di as txt "Jackknife: Round `i' Finished"
+		restore
+		}
+		postclose `sim'
+		postclose `sim2_off'
+}
+	
+	
+//Carryover_ATT
+if("`vartype'"=="bootstrap"){
+	preserve
+	use `results',clear
+	tempname ci carryover_ci_att
+	qui sum ATT
+	local Carryover_ATTsd=r(sd) //to save
+	local twosidel=100*`alpha'/2 // twoside test
+	local twosideu=100*(1-`alpha'/2)
+	local twoside=100-`alpha'*100
+	
+	qui _pctile ATT,p(`twosidel' ,`twosideu')
+	matrix `carryover_ci_att'=(r(r1),r(r2)) //to save
+	matrix rownames `carryover_ci_att' = "Confidence Interval" 
+	matrix colnames `carryover_ci_att' = "Lower Bound" "Upper Bound"
+	if r(r1)>0 | r(r2)<0 {
+		di "Carryover Test Fail"
+	}
+	else {
+		di "Carryover Test Pass"
+	}
+
+	local carryover_z_score = `CarryoverATT'/`Carryover_ATTsd'
+	local carryover_p_value = 2*(1-normal(abs(`carryover_z_score')))
+	
+	local carryover_pvalue=round(`carryover_p_value',0.001)
+	local carryover_pvalueplot=string(`carryover_pvalue')
+	
+
+	//ATTs
+	tempname sim_plot_off
+	tempfile results_plot_off 
+	//next line no attsd?
+	qui postfile `sim_plot_off' s atts att_lb att_ub s_N using `results_plot_off',replace
+	
+	qui use `results2_off',clear
+
+	forvalue s=`preperiod'/`offperiod' {
+		qui sum ATTs if s==`s'
+		local attsd_temp=r(sd)
+		qui _pctile ATTs if s==`s',p(`twosidel' ,`twosideu')
+		matrix `ci'=(r(r1),r(r2))
+		local s_index=`s'-`preperiod'
+		//post `sim_plot' (`s') (`att`s_index'') (`ci'[1,1]) (`ci'[1,2]) (`N`s_index'')
+		// must be something wrong here
+		if("`vartype'"=="bootstrap"){
+			post `sim_plot_off' (`s') (`att_off`s_index'') (`ci'[1,1]) (`ci'[1,2]) (`N_off`s_index'')
+		}
+	}
+	postclose `sim_plot_off'
+	restore
+}
+
+
+if("`vartype'"=="jackknife"){
+	preserve
+	use `results',clear
+	tempname ci carryover_ci_att
+	qui sum ATT
+	local Carryover_ATTsd=r(sd)*sqrt(`max_id') //to save
+	
+	local tvalue = invttail(`max_id'-1,`alpha'/2)
+	local ub_jack_c = `CarryoverATT'+`tvalue'*`Carryover_ATTsd'
+	local lb_jack_c = `CarryoverATT'-`tvalue'*`Carryover_ATTsd'
+		
+	matrix `carryover_ci_att'=(`lb_jack_c',`ub_jack_c') //to save
+	matrix rownames `carryover_ci_att' = "Confidence Interval" 
+	matrix colnames `carryover_ci_att' = "Lower Bound" "Upper Bound"
+	
+
+	//p-value
+	local carryover_z_score = `CarryoverATT'/`Carryover_ATTsd'
+	local carryover_p_value = 2*(1-normal(abs(`carryover_z_score')))
+	
+	local carryover_pvalue=round(`carryover_p_value',0.001)
+	local carryover_pvalueplot=string(`carryover_pvalue')
+
+	//ATTs
+	tempname sim_plot_off
+	tempfile results_plot_off
+	qui postfile `sim_plot_off' s atts att_lb att_ub s_N using `results_plot_off',replace
+	
+	qui use `results2_off',clear
+
+	forvalue s=`preperiod'/`offperiod' {
+		qui sum ATTs if s==`s'
+		local attsd_temp=r(sd)*sqrt(`max_id')
+		//qui _pctile ATTs if s==`s',p(`twosidel' ,`twosideu')
+		//matrix `ci'=(r(r1),r(r2))
+		local s_index=`s'-`preperiod'
+		//post `sim_plot' (`s') (`att`s_index'') (`ci'[1,1]) (`ci'[1,2]) (`N`s_index'')
+		
+		if("`vartype'"=="jackknife"){
+			local tvalue = invttail(`max_id'-1,`alpha'/2)
+			local ub_jack = `att_off`s_index''+`tvalue'*`attsd_temp'
+			local lb_jack = `att_off`s_index''-`tvalue'*`attsd_temp'
+			post `sim_plot_off' (`s') (`att_off`s_index'') (`lb_jack') (`ub_jack') (`N_off`s_index'')
+		}
+	}
+	postclose `sim_plot_off'
+	restore
+}
+
+// Draw ATTs plot
+preserve
+qui use `results_plot_off',clear
+
+qui  egen max_N=max(s_N)
+qui sum max_N,meanonly
+local max_N=r(mean)
+/*NEW update with regard to proportion*/
+local N_cutoff = `max_N'*`proportion'
+
+qui drop if s_N<`N_cutoff'
+qui drop if s<`preperiod'
+qui drop if s>`offperiod'
+
+//update preperiod and offperiod
+qui sum s, meanonly
+local preperiod = r(min)
+local offperiod = r(max)
+/*NEW End*/
+
+qui tsset s
+local CIlevel=100*(1-`alpha')
+qui  egen max_atts=max(att_ub)
+
+local axis2_up=4*`max_N'
+qui sum max_atts,meanonly
+local max_atts=1.2*r(mean)
+if `max_atts'<0 {
+	local max_atts=0
+}
+qui  egen min_atts=min(att_lb)
+qui sum min_atts,meanonly
+local min_atts=1.2*r(mean)
+if `min_atts'>0 {
+	local min_atts=0
+}
+qui gen y0=0
+local carryover_line=`lead'
+
+if(abs(`max_atts')>abs(`min_atts')){
+		local min_atts=-`max_atts'*0.8
+	}
+	else{
+		local max_atts=-`min_atts'*0.8
+}
+
+/* Title */
+local xlabel = cond("`xlabel'"=="","Time relative to the Exit of Treatment","`xlabel'")
+local ylabel = cond("`ylabel'"=="","Average Treatment Effect","`ylabel'")
+local title = cond("`title'"=="","Carryover Test","`title'")
+local neg_lead=`lead'+1
+/*MEW LSJ*/
+twoway (rcap att_lb att_ub s, color(black) lcolor(black) yaxis(1)) ///
+(rcap att_lb att_ub s if s<=`lead' & s>0, color(red) lcolor(red) yaxis(1)) ///
+(scatter atts s, mcolor(black) yaxis(1) msize(2pt)) ///
+(scatter atts s if s<=`lead' & s>0,mcolor(red) msymbol(O) yaxis(1) msize(small)) ///
+(bar s_N s,yaxis(2) barwidth(0.5) color(gray%50)), ///
+xline(0 `carryover_line', lcolor(gs6%50) lpattern(dash)) ///
+yline(0, lcolor(gs6%50) lpattern(dash)) ///
+ysc(axis(1) r(`min_atts' `max_atts')) ///
+ysc(axis(2) r(0 `axis2_up')) ///
+ylabel(0 `max_N',axis(2)) ///
+xlabel(`preperiod' 0 (10) `neg_lead' `offperiod', labsize(*0.75)) ///
+xtick(`preperiod'(1)`offperiod') ///
+ytitle(`ylabel',axis(1)) ///
+ytitle("Num of observations",axis(2)) ///
+xtitle(`xlabel') ///
+title(`title') ///
+text(`max_atts' `offperiod' "Carryover Test p-value: `carryover_pvalueplot'",place(sw)) ///
+scheme(s2mono) ///
+graphr(fcolor(white)) ///
+plotregion(lcolor(black) lwidth(tiny) margin(zero) ) ///
+note("`CIlevel'% Confidence Interval") ///
+legend(order( 1 "ATT(`CIlevel'% CI)" 2 "Carryover Region" 3 "ATT")) 
+
+
+if("`saving'"!=""){
+   cap graph export `saving',replace
+} 
+restore
+
+
+ereturn scalar carryover_pvalue=`carryover_pvalue'
+ereturn scalar carryover_ATT_mean=`CarryoverATT'
+ereturn scalar carryover_ATT_sd=`Carryover_ATTsd'
+ereturn matrix carryover_CI=`carryover_ci_att'
+
+
+end
+/*LSJ END*/
+
+
 program define permutation,eclass
 syntax varlist(min=1 max=1) , Treat(varlist min=1 max=1) ///
 								  Unit(varlist min=1 max=1) ///
 								  Time(varlist min=1 max=1) ///
-								  period_s(varlist min=1 max=1) ///
+								  t_on(varlist min=1 max=1) ///
+								  t_off(varlist min=1 max=1) ///
 								[ cov(varlist) ///
 								  weight(varlist max=1) ///
 								  force(string) ///
@@ -2366,9 +3159,10 @@ sort `newid' `newtime'
 
 /* estimate ATT */
 preserve
-tempvar counter TE S ATTs
+tempvar counter TE S ATTs ATTs_off
 
-qui fect_counter `counter' `TE' `ATTs',outcome(`varlist') treat(`treat') unit(`newid') time(`newtime') period_s(`period_s') ///
+qui fect_counter `counter' `TE' `ATTs' `ATTs_off',outcome(`varlist') treat(`treat') unit(`newid') time(`newtime') ///
+t_on(`t_on') t_off(`t_off') ///
 method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
 maxiterations(`maxiterations') lambda(`lambda')
 
@@ -2388,8 +3182,9 @@ forvalue i=1/`nboots'{
 	tempvar permutreat
 	qui mata:permute("`treat'","`newid'","`newtime'","`permutreat'")
 	
-	tempvar counter TE S ATTs
-	qui fect_counter `counter' `TE' `ATTs',outcome(`varlist') treat(`permutreat') unit(`newid') time(`newtime') period_s(`period_s')  ///
+	tempvar counter TE S ATTs ATTs_off
+	qui fect_counter `counter' `TE' `ATTs' `ATTs_off',outcome(`varlist') treat(`permutreat') unit(`newid') time(`newtime') ///
+	t_on(`t_on') t_off(`t_off')  ///
 	method("`method'") force("`force'") cov(`cov') nknots(`nknots') degree(`degree') r(`r') tol(`tol') ///
 	maxiterations(`maxiterations') lambda(`lambda')
 	
@@ -2416,7 +3211,7 @@ di as res "Permutation Test: p value=`pvalue_print'"
 restore
 end
 
-program define _gwtmean
+/* program define _gwtmean
 	version 3.0
 	local varlist "req new max(1)"
 	local exp "req nopre"
@@ -2435,7 +3230,7 @@ program define _gwtmean
 			*/ sum((`exp')`weight')/sum(((`exp')!=.)`weight') if `touse'==1
 		by `touse' `by': replace `varlist' = `varlist'[_N]
 	}
-end
+end */
 
 *********************************************************mata
 mata:
@@ -2501,7 +3296,7 @@ void gen_s(string missing_treat,string unit, string time, string outputs)
 		}
 		else{
 			state=1
-			panel_s[i,1]=1
+			panel_s[i,1]=.
 		}
 		for(j=2;j<=colnum;j++) {
 			if(panel_treat[i,j]==0 & state==1) {
@@ -2529,6 +3324,43 @@ void gen_s(string missing_treat,string unit, string time, string outputs)
 	panel_s=colshape(panel_s,1)
 	st_addvar("int", outputs)
 	st_store(., outputs,panel_s)
+}
+
+/* NEW LSJ: Invert treatment: 1 to 0, 0 to 1 */
+void inv_treat(string Treat,
+			 string unit, 
+			 string time, 
+			 string outputs)
+{
+	real matrix treat,panel_treat,x,inverttreat
+	real scalar minid,maxid,mintime,maxtime,rownum,colnum,i,j,k
+	st_view(treat=.,.,Treat)
+	st_view(x=.,.,(unit,time))
+
+	minid=min(x[,1])
+	maxid=max(x[,1])
+	mintime=min(x[,2])
+	maxtime=max(x[,2])
+	rownum=maxid-minid+1
+	colnum=(maxtime-mintime)+1
+
+	panel_treat=treat
+	panel_treat=rowshape(panel_treat,rownum)
+    inverttreat=panel_treat
+
+	for(i=1;i<=rownum;i++){
+        for(j=colnum;j>=1;j--){
+            if(panel_treat[i,j]==1){
+                inverttreat[i,j]=0
+            }
+            else if(panel_treat[i,j]==0){
+                inverttreat[i,j]=1
+            }
+        }
+    }
+	inverttreat=colshape(inverttreat,1) 
+	st_addvar("int", outputs)
+	st_store(., outputs,inverttreat)
 }
 
 void ife(string outcome, 
@@ -2911,7 +3743,7 @@ void val_gen(string treat,
 	}
 
 	if(fold<=1) {
-		_error("Fold should be larger than 1.")
+		_error("Folds should be larger than 1.")
 	}
 
 	colcut=floor(colnum/period)
@@ -3037,6 +3869,48 @@ void p_treat(string Treat,
 	st_addvar("int", outputs)
 	st_store(., outputs,placebotreat)
 }
+
+/*NEW LSJ*/
+/*Carryover Effect Treatment*/
+void c_treat(string Treat,
+			 string unit, 
+			 string time, 
+			 string outputs,
+			 real period)
+{
+	real matrix treat,panel_treat,x,carryovertreat
+	real scalar minid,maxid,mintime,maxtime,rownum,colnum,i,j,k
+	st_view(treat=.,.,Treat)
+	st_view(x=.,.,(unit,time))
+
+	minid=min(x[,1])
+	maxid=max(x[,1])
+	mintime=min(x[,2])
+	maxtime=max(x[,2])
+	rownum=maxid-minid+1
+	colnum=(maxtime-mintime)+1
+	panel_treat=treat
+	panel_treat=rowshape(panel_treat,rownum)
+
+	carryovertreat=panel_treat
+
+	for(i=1;i<=rownum;i++){
+		for(j=colnum;j>=1;j--){
+			if(panel_treat[i,j]==1){
+				for(k=1;k<=period;k++){
+					if((j+k)<=colnum){
+						carryovertreat[i,j+k]=carryovertreat[i,j+k]+1
+					}
+				}
+			}	 
+		}
+	}
+	carryovertreat=carryovertreat:>=1
+	carryovertreat=colshape(carryovertreat,1)
+	st_addvar("int", outputs)
+	st_store(., outputs,carryovertreat)
+}
+/*LSJ END*/
 
 void waldF(string scalar Id, 
 		   string scalar Time, 
