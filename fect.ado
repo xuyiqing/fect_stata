@@ -606,14 +606,15 @@ if("`se'"!="" & "`placeboTest'"=="" & "`carryoverTest'"==""){
 				}
 			}
 
-			/* ATTs */
-			forvalue si=`min_s_off'/`max_s_off' {
-				qui sum `ATTs_off' [iweight = `weight'] if `t_off'==`si' & `touse'==1,meanonly
-				if r(mean)!=.{
-					post `sim2_off' (`si') (r(mean))
+			/* ATTs with exit */
+			if(`hasrev'==1){
+				forvalue si=`min_s_off'/`max_s_off' {
+					qui sum `ATTs_off' [iweight = `weight'] if `t_off'==`si' & `touse'==1,meanonly
+					if r(mean)!=.{
+						post `sim2_off' (`si') (r(mean))
+					}
 				}
 			}
-			
 			if mod(`i',100)==0 {
 				di as txt "ATT Estimation: Already Bootstrapped `i' Times"
 			}
@@ -676,11 +677,12 @@ if("`se'"!="" & "`placeboTest'"=="" & "`carryoverTest'"==""){
 					post `sim2' (`si') (r(mean))
 				}
 			}
-
-			forvalue si=`min_s_off'/`max_s_off' {
-				qui sum `ATTs' [iweight = `weight'] if `t_off'==`si' & `touse'==1,meanonly
-				if r(mean)!=.{
-					post `sim2_off' (`si') (r(mean))
+			if(`hasrev'==1){
+				forvalue si=`min_s_off'/`max_s_off' {
+					qui sum `ATTs' [iweight = `weight'] if `t_off'==`si' & `touse'==1,meanonly
+					if r(mean)!=.{
+						post `sim2_off' (`si') (r(mean))
+					}
 				}
 			}
 			//di as txt "Jackknife: Round `i' Finished"
@@ -1051,7 +1053,7 @@ if("`se'"=="" & "`placeboTest'"=="" & "`carryoverTest'"=="" & "`equiTest'"==""){
 	 text(`max_atts' `preperiod' "`note'",place(e)) ///
 	 scheme(s2mono) ///
 	 graphr(fcolor(white)) ///
-	 plotregion(lcolor(black) lwidth(tiny) margin(zero) ) ///
+	 plotregion(lcolor(black) lwidth(thin) margin(zero) ) ///
 	 legend(order( 1 "ATT")) ///
 
 
@@ -1148,7 +1150,7 @@ if("`se'"!="" & "`placeboTest'"=="" & "`carryoverTest'"=="" & "`equiTest'"==""){
 	 text(`max_atts' `preperiod' "`note'",place(e)) ///
 	 scheme(s2mono) ///
 	 graphr(fcolor(white)) ///
-	 plotregion(lcolor(black) lwidth(tiny) margin(zero) ) ///
+	 plotregion(lcolor(black) lwidth(thin) margin(zero) ) ///
 	 legend(order( 1 "ATT `CIlevel'% CI" 2 "ATT")) 
 	 
 	if("`saving'"!=""){
@@ -1323,7 +1325,7 @@ if("`se'"!="" & "`placeboTest'"=="" & "`carryoverTest'"=="" & "`equiTest'"!=""){
 	 text(`max_atts' `offperiod' "F-Test p-value: `FvalPrint'",place(sw)) ///
 	 scheme(s2mono) ///
 	 graphr(fcolor(white)) ///
-	 plotregion(lcolor(black) lwidth(tiny) margin(zero) ) ///
+	 plotregion(lcolor(black) lwidth(thin) margin(zero) ) ///
 	legend(order(1 "ATT(`Tlevel'% CI)"  2 "ATT" 4 "Equiv.Bound" 6 "Min.Bound")) 
 	
 	
@@ -1544,7 +1546,7 @@ syntax newvarlist(min=4 max=4 gen) [if] , outcome(varlist min=1 max=1) ///
 									  t_off_original(varlist max=1) ///
 									]
 
-set trace on
+set trace off
 tempvar touse 
 mark `touse' `if'
 
@@ -2714,7 +2716,7 @@ twoway (rcap att_lb att_ub s, color(black) lcolor(black) yaxis(1)) ///
 	 text(`max_atts' `offperiod' "Placebo Test p-value: `placebo_pvalueplot'",place(sw)) ///
 	 scheme(s2mono) ///
 	 graphr(fcolor(white)) ///
-	 plotregion(lcolor(black) lwidth(tiny) margin(zero) ) ///
+	 plotregion(lcolor(black) lwidth(thin) margin(zero) ) ///
 	 note("`CIlevel'% Confidence Interval") ///
 legend(order( 1 "ATT(`CIlevel'% CI)" 2 "Placebo Region" 3 "ATT")) 
 
@@ -3109,7 +3111,7 @@ title(`title') ///
 text(`max_atts' `offperiod' "Carryover Test p-value: `carryover_pvalueplot'",place(sw)) ///
 scheme(s2mono) ///
 graphr(fcolor(white)) ///
-plotregion(lcolor(black) lwidth(tiny) margin(zero) ) ///
+plotregion(lcolor(black) lwidth(thin) margin(zero) ) ///
 note("`CIlevel'% Confidence Interval") ///
 legend(order( 1 "ATT(`CIlevel'% CI)" 2 "Carryover Region" 3 "ATT")) 
 
