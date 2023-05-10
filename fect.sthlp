@@ -1,5 +1,5 @@
 {smcl}
-{* *! version 1.1  June 10, 2020 @ 00:00:00}{...}
+{* *! version 1.0.2  May 1, 2023 @ 00:00:00}{...}
 {cmd:help fect}
 {hline}
 
