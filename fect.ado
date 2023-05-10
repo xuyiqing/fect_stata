@@ -793,7 +793,8 @@ if("`se'"!="" & "`placeboTest'"=="" & "`carryoverTest'"==""){
 		tempname ci ci_att
 		qui sum ATT
 		local ATTsd=r(sd)*sqrt(`max_id') //to save
-		
+
+
 		local tvalue = invttail(`max_id'-1,`alpha'/2)
 		local ub_jack = `ATT'+`tvalue'*`ATTsd'
 		local lb_jack = `ATT'-`tvalue'*`ATTsd'
@@ -837,8 +838,6 @@ if("`se'"!="" & "`placeboTest'"=="" & "`carryoverTest'"==""){
 					continue
 				}
 				local attsd_temp=r(sd)*sqrt(`max_id')
-				qui _pctile ATTs if s==`s',p(`twosidel' ,`twosideu')
-				matrix `ci'=(r(r1),r(r2))
 				local s_index=`s'-`min_s_off'
 				if("`vartype'"=="jackknife"){
 					local tvalue = invttail(`max_id'-1,`alpha'/2)
@@ -1160,6 +1159,8 @@ if("`se'"!="" & "`placeboTest'"=="" & "`carryoverTest'"=="" & "`equiTest'"==""){
 }
 
 
+
+
 /* Equivalence Test */
 //draw plot2
 // LSJ: Added F test
@@ -1217,21 +1218,20 @@ if("`se'"!="" & "`placeboTest'"=="" & "`carryoverTest'"=="" & "`equiTest'"!=""){
 
 	/*calculate F stats*/
 	qui use `results2',clear
-	mkmat ATTs if s==`preperiod', matrix(delta_m)
-	// results2 里应当是bootstrap值。那对于每个s，把这个s下的所有ATTs弄成一个nx1的vector ATT_s，再把ATT_s 并排放，得到我们想要的delta = [ATT_-m, ATT_-m+1...ATT_0]
+	qui mkmat ATTs if s==`preperiod', matrix(delta_m)
 	local new_s_start = `preperiod'+1
 	forvalue s=`new_s_start'/0{
-		mkmat ATTs if s==`s', matrix(temp)
-		matrix delta_m = delta_m, temp
+		qui mkmat ATTs if s==`s', matrix(temp)
+		qui matrix delta_m = delta_m, temp
 	}
 	/*Covariance matrix*/
 	qui mata: delta_m = st_matrix("delta_m")
 	qui	mata: vce_m = st_matrix("vce_m", variance(delta_m))
 
-	mat list delta_m
-	mat list vce_m // display the matrix
+	qui mat list delta_m
+	qui mat list vce_m // display the matrix
 	/*Get F value*/
-	mata: delta_vec = st_matrix("delta_vec", mean(delta_m))
+	qui mata: delta_vec = st_matrix("delta_vec", mean(delta_m))
 	matrix F_mat = delta_vec*vce_m*delta_vec'
 	scalar F = (`max_N'*(`max_N'-`m_f'-1)/((`max_N'-1)*(`m_f'+1))) * F_mat[1,1]
 
