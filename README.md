@@ -4,7 +4,7 @@
 
 ---
 
-**Authors:** Licheng Liu (MIT); Ye Wang (NYU); Yiqing Xu (Stanford); Ziyi Liu (PKU)
+**Authors:** Licheng Liu (MIT); Ye Wang (NYU); Yiqing Xu (Stanford); Ziyi Liu (Uchicago); Shijian Liu (Duke)
 
 **Maintainer:** Yiqing Xu [<yiqingxu@stanford.edu>]  
 
