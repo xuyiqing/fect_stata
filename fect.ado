@@ -3236,7 +3236,6 @@ end */
 
 *********************************************************mata
 mata:
-mata clear
 
 void treat_fill(string missing_treat,string unit, string time)
 {
