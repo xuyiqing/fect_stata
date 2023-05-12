@@ -1134,7 +1134,7 @@ if("`se'"!="" & "`placeboTest'"=="" & "`carryoverTest'"=="" & "`equiTest'"==""){
 	twoway (rcap att_lb att_ub s, color(black) lcolor(black) yaxis(1)) ///
 	(scatter atts s, mcolor(black) yaxis(1) msize(2pt)) ///
 	(bar s_N s,yaxis(2) barwidth(0.5) color(gray%50)), ///
-	 xline(0, lcolor(gs6%50) lpattern(dash)) ///
+	 xline(0.5, lcolor(gs6%50) lpattern(dash)) ///
 	 yline(0, lcolor(gs6%50) lpattern(dash)) ///
 	 yscale(axis(2) r(0 `axis2_up')) ///
 	 yscale(axis(1) r(`min_atts' `max_atts')) ///
@@ -2679,7 +2679,7 @@ if `min_atts'>0 {
 	local min_atts=0
 }
 qui gen y0=0
-local placebo_line=`lag'-1
+local placebo_line=`lag'-1+0.5
 
 if(abs(`max_atts')>abs(`min_atts')){
 		local min_atts=-`max_atts'*0.8
@@ -2701,7 +2701,7 @@ twoway (rcap att_lb att_ub s, color(black) lcolor(black) yaxis(1)) ///
 (rcap att_lb att_ub s if s>-`lag' & s<=0, color(blue) lcolor(blue) yaxis(1)) ///
 (scatter atts s if s>-`lag' & s<=0,mcolor(blue) msymbol(O) yaxis(1) msize(small)) ///
 	(bar s_N s,yaxis(2) barwidth(0.5) color(gray%50)), ///
-	 xline(0 -`placebo_line', lcolor(gs6%50) lpattern(dash)) ///
+	 xline(0.5 -`placebo_line', lcolor(gs6%50) lpattern(dash)) ///
 	 yline(0, lcolor(gs6%50) lpattern(dash)) ///
 	 yscale(axis(2) r(0 `axis2_up')) ///
 	 yscale(axis(1) r(`min_atts' `max_atts')) ///
@@ -3077,7 +3077,7 @@ if `min_atts'>0 {
 	local min_atts=0
 }
 qui gen y0=0
-local carryover_line=`lead'
+local carryover_line=`lead'+0.5
 
 if(abs(`max_atts')>abs(`min_atts')){
 		local min_atts=-`max_atts'*0.8
@@ -3097,7 +3097,7 @@ twoway (rcap att_lb att_ub s, color(black) lcolor(black) yaxis(1)) ///
 (scatter atts s, mcolor(black) yaxis(1) msize(2pt)) ///
 (scatter atts s if s<=`lead' & s>0,mcolor(red) msymbol(O) yaxis(1) msize(small)) ///
 (bar s_N s,yaxis(2) barwidth(0.5) color(gray%50)), ///
-xline(0 `carryover_line', lcolor(gs6%50) lpattern(dash)) ///
+xline(0.5 `carryover_line', lcolor(gs6%50) lpattern(dash)) ///
 yline(0, lcolor(gs6%50) lpattern(dash)) ///
 ysc(axis(1) r(`min_atts' `max_atts')) ///
 ysc(axis(2) r(0 `axis2_up')) ///
