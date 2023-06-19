@@ -67,7 +67,11 @@ if _rc {
 	exit 111
 }
 
-
+cap which _gwtmean.ado
+if _rc {
+	di as error "_gwtmean.ado required: {stata ssc install _gwtmean,replace}"
+	exit 111
+}
 
 /* tokenize `varlist'
 local y `1'
