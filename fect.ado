@@ -249,6 +249,18 @@ if("`se'"==""){
 	local carryoverTest=""
 }
 
+/*EquiTest*/
+if("`equiTest'"!=""){
+	local offperiod = 0
+	dis "offperiod is set to 0 for Equivalence Test"
+	if(`preperiod' == -999999){
+	local preperiod = -2
+	dis "Please state the number of preperiods for Equivalence Test. Default number is -2. "
+	}
+
+}
+
+
 ************************************Input Check End
 
 	
