@@ -11,10 +11,11 @@
 Installation
 =======
 
-As a pre-requisite, the `reghdfe` package needs to be installed. 
+As pre-requisites, the `reghdfe` package and `_gwtmean` package need to be installed. 
 
 ```Stata
 . ssc install reghdfe, replace
+. ssc install _gwtmean, replace
 ```
 
 To install the `fect` package with Stata v14 or greater
