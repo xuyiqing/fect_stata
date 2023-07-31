@@ -267,10 +267,11 @@ if("`equiTest'"!=""){
 /* save raw data */
 tempfile raw
 qui save `raw',replace
-qui keep `varlist' `treat' `unit' `time' `cov' `weight'
+
 tempvar touse 
 mark `touse' `if'
 qui drop if `touse'==0
+qui keep `varlist' `treat' `unit' `time' `cov' `weight' `touse'
 qui drop if `unit' == .
 qui drop if `time' == .
 
