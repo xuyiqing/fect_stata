@@ -285,10 +285,10 @@ if("`weight'"!=""){
 	tempvar sd_weight
 	qui bys `newid': egen `sd_weight' = sd(`weight')
 	qui sum `sd_weight',meanonly
-	if(r(mean)!=0){
-		di as err "weights should be the same across periods for each unit."
-		exit
-	}
+	//if(r(mean)!=0){
+	//	di as err "weights should be the same across periods for each unit."
+	//	exit
+	//}
 }
 else{
 	qui cap drop `weight'
