@@ -50,6 +50,7 @@
 {synopt:{opt maxiterations(integer)}} an integer specifying the upper limit of number of interactions, default to 2000. {p_end}
 {synopt:{opt preperiod(integer)}} an negative integer specifying the range of pre-treatment period used for goodness-of-fit test(Wald test and Equivalence test) and ATT plot. If left blank, all pre-treatment periods will be used. {p_end}
 {synopt:{opt offperiod(integer)}} an positive integer specifying the range of post-treatment period used for ATT plot. If left blank, all post-treatment periods will be used. {p_end}
+{synopt:{opt proportion(real)}} a positive real value specifying pre-treatment periods that have observations larger than the proportion of observations at period 0. Default is 0.3 {p_end}
 {synopt:{opt wald}} a flag indicating whether to perform wald test for pre-treatment fitting check. {p_end}
 {synopt:{opt placeboTest}} a flag indicating whether to perform placebo test. {p_end}
 {synopt:{opt placeboperiod(integer)}} an positive integer specifying the range of pre-treatment period that will be assigned as "placebo" treatment period. {p_end}
@@ -111,6 +112,9 @@ We use simdata1.dta to illustrate how {cmd:fect} works.
 {pstd}Estimate ATT and its confidence intervals using the MC model and jackknife variance{p_end}
 {phang2}{cmd:. fect Y, treat(D) unit(id) time(time) cov(X1 X2) method("mc") lambda(0.003) se vartype("jackknife")}{p_end}
 
+{pstd}Estimate ATT and its confidence intervals using the IFE model and keep pre-treatment periods that have observations larger than the 50 percent of observations at period 0 {p_end}
+{phang2}{cmd:. fect Y, treat(D) unit(id) time(time) cov(X1 X2) method("ife") proportion(0.5) r(2) se}{p_end}
+
 {pstd}Conduct the Wald Test {p_end}
 {phang2}{cmd:. fect Y,  treat(D) unit(id) time(time) cov(X1 X2) se method("ife") r(2) preperiod(-14) offperiod(5) wald nboots(100)}{p_end}
 
@@ -164,7 +168,7 @@ We use simdata1.dta to illustrate how {cmd:fect} works.
   
 {title:Authors}
 
-  Licheng Liu (MIT); Ye Wang (NYU); Yiqing Xu(Stanford); Ziyi Liu(PKU)
+  Licheng Liu (MIT); Ye Wang (NYU); Yiqing Xu(Stanford); Ziyi Liu(UChicago); Shijian Liu(Duke)
 
 
 
