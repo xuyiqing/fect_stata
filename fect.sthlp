@@ -89,7 +89,7 @@
 We use simdata1.dta to illustrate how {cmd:fect} works. 
 
 {pstd}Load simdata1 {p_end}
-{phang2}{cmd:. sysuse simdata1.dta, clear}{p_end}
+{phang2}{cmd:. use "https://raw.githubusercontent.com/xuyiqing/fect_stata/master/simdata1.dta", clear}{p_end}
 
 {pstd}Estimate ATT using the fixed effects model(FE) {p_end}
 {phang2}{cmd:. fect Y, treat(D) unit(id) time(time) cov(X1 X2) method("fe")}{p_end}
