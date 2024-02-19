@@ -2,7 +2,7 @@ v 3
 
 d fect. A Practical Guide to Counterfactual Estimators for Causal Inference with Time-Series Cross-Sectional Data
 d
-d Author: Licheng Liu (MIT); Ye Wang (NYU); Yiqing Xu (Stanford)
+d Author: Licheng Liu (MIT); Ye Wang (NYU); Yiqing Xu (Stanford); Ziyi Liu (UC Berkeley); Shijian Liu (Duke)
 d Support: yiqingxu@stanford.edu 
 d
 d
@@ -16,5 +16,7 @@ f fect.sthlp
 f simdata1.dta
 f simdata.dta
 f turnout.dta
+
+d Note: An User's Guide is available at https://yiqingxu.org/packages/fect/stata/fect_md.html
 
 e
