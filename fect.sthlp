@@ -168,7 +168,7 @@ We use simdata1.dta to illustrate how {cmd:fect} works.
   
 {title:Authors}
 
-  Licheng Liu (MIT); Ye Wang (NYU); Yiqing Xu(Stanford); Ziyi Liu(UChicago); Shijian Liu(Duke)
+  Licheng Liu (MIT); Ye Wang (NYU); Yiqing Xu(Stanford); Ziyi Liu(UChicago); Shijian Liu(NYU Stern)
 
 
 
