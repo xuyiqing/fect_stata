@@ -1586,21 +1586,21 @@ if("`method'"=="fe"){
 	tempvar FE1 FE2 yearFE unitFE counterfactual
 	if("`force'"=="two-way"){
 		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb (`FE1'=`newid' `FE2'=`newtime') ///
-		  dof(none) version(5)
+		  dof(none)  
 	}
 	if("`force'"=="unit"){
 		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid')   ///
-		dof(none) version(5)   
+		dof(none)     
 		qui gen `FE2'=0
 	}
 	if("`force'"=="time"){
 		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime')   ///
-		dof(none) version(5)   
+		dof(none)     
 		qui gen `FE1'=0
 	}
 	if("`force'"=="none"){
 		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,noabsorb ///
-		dof(none)   version(5)
+		dof(none)    
 		qui gen `FE2'=0
 		qui gen `FE1'=0
 	}
@@ -1645,21 +1645,21 @@ if("`method'"=="bspline"){
 	
 	if("`force'"=="two-way"){
 		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime' `FE'=i.`newid'#c.(`trend_all'))   ///
-		dof(none)   version(5)
+		dof(none)    
 	}
 	if("`force'"=="unit"){
 		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE'=i.`newid'#c.(`trend_all'))   ///
-		dof(none)   version(5)
+		dof(none)    
 		qui gen `FE2'=0
 	}
 	if("`force'"=="time"){
 		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime' `FE'=i.`newid'#c.(`trend_all'))   ///
-		dof(none)   version(5)
+		dof(none)    
 		qui gen `FE1'=0
 	}
 	if("`force'"=="none"){
 		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE'=i.`newid'#c.(`trend_all'))   ///
-		dof(none)   version(5)
+		dof(none)    
 		qui gen `FE2'=0
 		qui gen `FE1'=0
 	}
@@ -1721,21 +1721,21 @@ if("`method'"=="polynomial"){
 	
 	if("`force'"=="two-way"){
 		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime' `FE'=i.`newid'#c.(`trend_all'))   ///
-		dof(none)   version(5)
+		dof(none)    
 	}
 	if("`force'"=="unit"){
 		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE'=i.`newid'#c.(`trend_all'))   ///
-		dof(none)   version(5)
+		dof(none)    
 		qui gen `FE2'=0
 	}
 	if("`force'"=="time"){
 		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime' `FE'=i.`newid'#c.(`trend_all'))   ///
-		dof(none)   version(5)
+		dof(none)    
 		qui gen `FE1'=0
 	}
 	if("`force'"=="none"){
 		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE'=i.`newid'#c.(`trend_all'))   ///
-		dof(none)   version(5)
+		dof(none)    
 		qui gen `FE2'=0
 		qui gen `FE1'=0
 	}
@@ -1789,21 +1789,21 @@ if("`method'"=="ife"){
 	tempvar FE1 FE2 yearFE unitFE cons counterfactual p_treat
 	if("`force'"=="two-way"){
 		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime')   ///
-		dof(none)   version(5)
+		dof(none)    
 	}
 	if("`force'"=="unit"){
 		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid')   ///
-		dof(none)   version(5)
+		dof(none)    
 		qui gen `FE2'=0
 	}
 	if("`force'"=="time"){
 		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime')   ///
-		dof(none)   version(5)
+		dof(none)    
 		qui gen `FE1'=0
 	}
 	if("`force'"=="none"){
 		qui reghdfe `norm_y' `cov' if `treat'==0 & `touse'==1,noabsorb ///
-		dof(none)   version(5)
+		dof(none)    
 		qui gen `FE2'=0
 		qui gen `FE1'=0
 	}
@@ -1836,21 +1836,21 @@ if("`method'"=="mc"){
 	qui gen `y'=`outcome'
 	if("`force'"=="two-way"){
 		qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid' `FE2'=`newtime')   ///
-		dof(none)   version(5)
+		dof(none)    
 	}
 	if("`force'"=="unit"){
 		qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,absorb(`FE1'=`newid')   ///
-		dof(none)   version(5)
+		dof(none)    
 		qui gen `FE2'=0
 	}
 	if("`force'"=="time"){
 		qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,absorb(`FE2'=`newtime')   ///
-		dof(none)   version(5)
+		dof(none)    
 		qui gen `FE1'=0
 	}
 	if("`force'"=="none"){
 		qui reghdfe `y' `cov' if `treat'==0 & `touse'==1,noabsorb ///
-		dof(none)   version(5)
+		dof(none)    
 		qui gen `FE2'=0
 		qui gen `FE1'=0
 	}
@@ -2070,19 +2070,19 @@ if("`method'"=="mc" | "`method'"=="both"){
 	tempvar FE1 FE2 e
 	if("`force'"=="two-way"){
 		qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, ab(`FE1'=`newid' `FE2'=`newtime') resid ///
-		dof(none)   version(5)
+		dof(none)    
 	}
 	if("`force'"=="unit"){
 		qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, ab(`FE1'=`newid') resid ///
-		dof(none)   version(5)
+		dof(none)    
 	}
 	if("`force'"=="unit"){
 		qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, ab(`FE2'=`newtime') resid ///
-		dof(none)   version(5)
+		dof(none)    
 	}
 	if("`force'"=="none"){
 		qui reghdfe `varlist' `cov' if `treat'==0 & `touse'==1, noabsorb resid ///
-		dof(none)   version(5)
+		dof(none)    
 	}
 		
 	qui predict `e',residual
